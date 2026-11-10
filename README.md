@@ -4,7 +4,9 @@
 
 RepoMentor helps new developers explore a company’s repositories without reading every file manually. It ingests source code and documentation from GitLab, retrieves the code most relevant to a natural-language question, and uses a local language model to produce an evidence-backed answer with links to exact files, commits, and line ranges.
 
-> **Project status:** Working command-line prototype. Retrieval evaluation, package-level modularization, automated synchronization, and a web interface are planned next.
+> **Project status:** Working prototype with a command-line interface and a React web chat. Package-level modularization and automated synchronization are planned next.
+
+![RepoMentor web interface: a chat about a repository with cited facts and their sources](docs/screenshots/web-chat.jpg)
 
 ## Why RepoMentor?
 
@@ -171,6 +173,8 @@ Each citation is followed by a GitLab URL pinned to the relevant commit and line
 | Local LLM runtime | Ollama |
 | Current local LLM | `qwen3:1.7b` |
 | Raw/intermediate format | JSON Lines and NumPy arrays |
+| Web API | FastAPI + SQLite (chat history) |
+| Web interface | React + TypeScript (Vite) |
 
 ## Project Structure
 
@@ -192,12 +196,16 @@ repomentor/
 ├── expanded_hybrid_search.py
 ├── rag_answer.py
 ├── evaluate_retrieval.py
+├── server.py                  # FastAPI backend for the web interface
+├── frontend/                  # React chat interface (Vite + TypeScript)
 ├── evaluation/
 │   └── retrieval_questions.example.json
 └── data/                       # Generated locally; ignored by Git
     ├── repository_files.jsonl
     ├── chunks.jsonl
-    └── embeddings.npy
+    ├── embeddings.npy
+    ├── repomentor.db           # Web repositories and chat history
+    └── repos/<id>/             # One index per repository added on the web
 ```
 
 Some scripts document intermediate experiments used to develop the final retrieval approach. A future refactor will move reusable logic into a Python package and separate production commands from experiments.
@@ -272,6 +280,8 @@ Edit `.env`:
 GITLAB_TOKEN=your_read_only_gitlab_token
 GITLAB_BASE_URL=https://gitlab.com
 GITLAB_PROJECT_PATH=your-username/your-project
+# Optional: any chat model pulled into Ollama (default qwen3:1.7b)
+OLLAMA_MODEL=qwen3:1.7b
 ```
 
 Never commit `.env` or paste its token into logs, screenshots, issues, or documentation.
@@ -373,6 +383,43 @@ python evaluate_retrieval.py --top-k 5
 
 The script runs the same retrieval pipeline as `rag_answer.py` (no LLM calls) and reports file-level **Hit@K**, **Recall@K**, and **MRR@K**, plus the expected files each question missed. Use it to compare chunking, embedding, and ranking changes objectively.
 
+### 13. Use the web interface (optional)
+
+The web interface lets you add several GitLab repositories, pick one, ask questions in a chat, and keeps every conversation in `data/repomentor.db`.
+
+Install the frontend once (requires Node.js 18+):
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+**Development** — run the API and the Vite dev server in two terminals:
+
+```bash
+uvicorn server:app --reload          # API on http://127.0.0.1:8000
+cd frontend && npm run dev           # UI on http://localhost:5173
+```
+
+**Single server** — build the UI once and let FastAPI serve it:
+
+```bash
+cd frontend && npm run build && cd ..
+uvicorn server:app                   # open http://127.0.0.1:8000
+```
+
+![Each source can be expanded to show the exact lines the answer was based on](docs/screenshots/web-source-code.jpg)
+
+What the interface offers:
+
+- **Repository picker:** add several GitLab projects; each one is indexed in the background and can be re-indexed or removed.
+- **Chat history:** every conversation is saved per repository in SQLite and can be reopened, renamed or deleted.
+- **Cited answers:** each fact has a numbered citation; hovering it highlights the source, and each source opens the exact commit and lines in GitLab or expands to show the code.
+- **Retrieval options:** choose how many source files to retrieve, or switch to retrieval-only mode to inspect sources without calling Ollama.
+
+In the sidebar, choose **+ Add** and enter a project path such as `group/project` (a pasted GitLab URL also works). The server downloads, chunks and embeds it in the background using the GitLab settings from `.env`. An index already built with the command-line scripts (`data/chunks.jsonl`) appears automatically. Use the refresh button to re-index a repository after it changes.
+
 ## Configuration and Security
 
 RepoMentor is designed around least-privilege access:
@@ -422,8 +469,8 @@ Small models can cite the wrong source number even when the correct evidence was
 - The current generator is a small local model with limited reasoning ability.
 - Fact extraction can still misinterpret source code.
 - Access control currently depends on the configured GitLab token rather than individual application users.
-- The project currently supports one configured repository per run.
-- There is no web interface yet.
+- The command-line scripts index one configured repository per run; the web interface supports several.
+- Follow-up questions in a chat are answered independently; earlier messages are not used as context.
 - Retrieval evaluation requires a hand-written question set; generation evaluation is not yet automated.
 
 ## Roadmap
@@ -435,9 +482,9 @@ Small models can cite the wrong source number even when the correct evidence was
 - [ ] Add a reranking model for top retrieval candidates.
 - [ ] Replace the NumPy prototype with PostgreSQL/pgvector or another vector store.
 - [ ] Add incremental GitLab synchronization using commits and webhooks.
-- [ ] Support multiple repositories and project-level filtering.
+- [x] Support multiple repositories (web interface).
 - [ ] Respect per-user GitLab permissions in a multi-user deployment.
-- [ ] Add a FastAPI backend and a polished web chat interface.
+- [x] Add a FastAPI backend and a web chat interface with history.
 - [ ] Add Docker-based local deployment.
 - [ ] Add automated tests and continuous integration.
 
