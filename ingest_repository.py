@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
@@ -10,15 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-gitlab_url = (os.getenv("GITLAB_BASE_URL") or "").rstrip("/")
-gitlab_token = os.getenv("GITLAB_TOKEN")
-project_path = os.getenv("GITLAB_PROJECT_PATH")
-
-if not all([gitlab_url, gitlab_token, project_path]):
-    raise RuntimeError("One or more GitLab environment variables are missing.")
-
-encoded_project = quote(project_path, safe="")
-headers = {"PRIVATE-TOKEN": gitlab_token}
+DEFAULT_OUTPUT_PATH = Path("data/repository_files.jsonl")
 
 allowed_extensions = {
     ".py", ".js", ".jsx", ".ts", ".tsx",
@@ -40,7 +33,24 @@ def is_useful_file(file_path: str) -> bool:
     return path.name == "Dockerfile" or path.suffix.lower() in allowed_extensions
 
 
-def list_repository_files(session: requests.Session) -> list[dict]:
+def get_gitlab_settings() -> tuple[str, str]:
+    gitlab_url = (os.getenv("GITLAB_BASE_URL") or "").rstrip("/")
+    gitlab_token = os.getenv("GITLAB_TOKEN")
+
+    if not gitlab_url or not gitlab_token:
+        raise RuntimeError(
+            "GITLAB_BASE_URL and GITLAB_TOKEN must be set in .env."
+        )
+
+    return gitlab_url, gitlab_token
+
+
+def list_repository_files(
+    session: requests.Session,
+    gitlab_url: str,
+    project_path: str,
+) -> list[dict]:
+    encoded_project = quote(project_path, safe="")
     url = (
         f"{gitlab_url}/api/v4/projects/"
         f"{encoded_project}/repository/tree"
@@ -77,8 +87,11 @@ def list_repository_files(session: requests.Session) -> list[dict]:
 
 def download_file(
     session: requests.Session,
+    gitlab_url: str,
+    project_path: str,
     file_path: str,
 ) -> dict:
+    encoded_project = quote(project_path, safe="")
     encoded_file = quote(file_path, safe="")
 
     url = (
@@ -109,34 +122,77 @@ def download_file(
     }
 
 
-session = requests.Session()
-session.headers.update(headers)
+def ingest_repository(
+    project_path: str,
+    output_path: Path = DEFAULT_OUTPUT_PATH,
+    progress: Callable[[int, int, str, bool], None] | None = None,
+) -> tuple[int, int]:
+    """
+    Download every useful file of a GitLab project into a JSON Lines
+    corpus. Returns the number of downloaded and failed files.
 
-repository_files = list_repository_files(session)
+    `progress(position, total, file_path, succeeded)` is called after
+    each file so callers can report progress.
+    """
 
-output_directory = Path("data")
-output_directory.mkdir(exist_ok=True)
+    gitlab_url, gitlab_token = get_gitlab_settings()
 
-output_path = output_directory / "repository_files.jsonl"
+    session = requests.Session()
+    session.headers.update({"PRIVATE-TOKEN": gitlab_token})
 
-successful = 0
-failed = 0
+    repository_files = list_repository_files(session, gitlab_url, project_path)
 
-with output_path.open("w", encoding="utf-8") as output_file:
-    for position, item in enumerate(repository_files, start=1):
-        file_path = item["path"]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            record = download_file(session, file_path)
-            output_file.write(json.dumps(record) + "\n")
-            successful += 1
-            print(f"[{position}/{len(repository_files)}] Downloaded {file_path}")
+    successful = 0
+    failed = 0
 
-        except requests.RequestException as error:
-            failed += 1
-            print(f"[{position}/{len(repository_files)}] Failed {file_path}: {error}")
+    with output_path.open("w", encoding="utf-8") as output_file:
+        for position, item in enumerate(repository_files, start=1):
+            file_path = item["path"]
 
-print("\nIngestion complete.")
-print(f"Downloaded: {successful}")
-print(f"Failed: {failed}")
-print(f"Saved to: {output_path}")
+            try:
+                record = download_file(
+                    session,
+                    gitlab_url,
+                    project_path,
+                    file_path,
+                )
+                output_file.write(json.dumps(record) + "\n")
+                successful += 1
+                succeeded = True
+
+            except requests.RequestException:
+                failed += 1
+                succeeded = False
+
+            if progress:
+                progress(position, len(repository_files), file_path, succeeded)
+
+    return successful, failed
+
+
+def main() -> None:
+    project_path = os.getenv("GITLAB_PROJECT_PATH")
+
+    if not project_path:
+        raise RuntimeError("GITLAB_PROJECT_PATH is missing from .env.")
+
+    def report(position: int, total: int, file_path: str, succeeded: bool):
+        status = "Downloaded" if succeeded else "Failed"
+        print(f"[{position}/{total}] {status} {file_path}")
+
+    successful, failed = ingest_repository(
+        project_path,
+        DEFAULT_OUTPUT_PATH,
+        report,
+    )
+
+    print("\nIngestion complete.")
+    print(f"Downloaded: {successful}")
+    print(f"Failed: {failed}")
+    print(f"Saved to: {DEFAULT_OUTPUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()

@@ -15,7 +15,8 @@ from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
-MODEL_NAME = "qwen3:1.7b"
+# Any chat model pulled into Ollama can be used, e.g. OLLAMA_MODEL=qwen2.5:1.5b
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen3:1.7b")
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 TOP_K = 5
@@ -93,10 +94,10 @@ def tokenize(text: str) -> list[str]:
     return expanded
 
 
-def load_chunks() -> list[dict]:
+def load_chunks(chunks_path: Path = CHUNKS_PATH) -> list[dict]:
     chunks = []
 
-    with CHUNKS_PATH.open("r", encoding="utf-8") as file:
+    with chunks_path.open("r", encoding="utf-8") as file:
         for line in file:
             if line.strip():
                 chunks.append(json.loads(line))
@@ -104,23 +105,28 @@ def load_chunks() -> list[dict]:
     return chunks
 
 
-def load_index() -> dict:
+def load_index(
+    chunks_path: Path = CHUNKS_PATH,
+    embeddings_path: Path = EMBEDDINGS_PATH,
+    embedding_model: SentenceTransformer | None = None,
+) -> dict:
     """
     Load chunks, embeddings, the embedding model and the BM25 index once
     so that several questions can be answered without reloading them.
+    Pass an already loaded `embedding_model` to share it between indexes.
     """
 
-    if not CHUNKS_PATH.exists() or not EMBEDDINGS_PATH.exists():
+    if not chunks_path.exists() or not embeddings_path.exists():
         raise RuntimeError(
             "Index files are missing. "
             "Run chunk_dataset.py and create_embeddings.py first."
         )
 
-    chunks = load_chunks()
-    embeddings = np.load(EMBEDDINGS_PATH)
+    chunks = load_chunks(chunks_path)
+    embeddings = np.load(embeddings_path)
 
     if not chunks:
-        raise RuntimeError(f"No chunks found in {CHUNKS_PATH}.")
+        raise RuntimeError(f"No chunks found in {chunks_path}.")
 
     if len(chunks) != len(embeddings):
         raise RuntimeError(
@@ -136,7 +142,9 @@ def load_index() -> dict:
     return {
         "chunks": chunks,
         "embeddings": embeddings,
-        "embedding_model": SentenceTransformer(EMBEDDING_MODEL),
+        "embedding_model": (
+            embedding_model or SentenceTransformer(EMBEDDING_MODEL)
+        ),
         "bm25": BM25Okapi(documents),
     }
 
@@ -338,8 +346,11 @@ def is_none_answer(text: str) -> bool:
     return text.strip().lstrip("-* ").rstrip(".").upper() == "NONE"
 
 
-def parse_facts(result: str, citation: str) -> list[str]:
-    """Turn the model's bullet list into facts with our own citation."""
+def parse_facts(result: str) -> list[str]:
+    """
+    Turn the model's bullet list into plain facts. Any citation the
+    model wrote is removed; callers attach the real source themselves.
+    """
 
     if is_none_answer(result):
         return []
@@ -356,7 +367,7 @@ def parse_facts(result: str, citation: str) -> list[str]:
         fact = MODEL_CITATION_PATTERN.sub("", line[2:]).strip()
 
         if fact and not is_none_answer(fact):
-            facts.append(f"- {fact} {citation}")
+            facts.append(fact)
 
         if len(facts) == MAX_FACTS_PER_SOURCE:
             break
@@ -404,38 +415,66 @@ Source:
         temperature=0,
     )
 
-    return parse_facts(result, create_citation(chunk))
+    return parse_facts(result)
 
 
-def print_sources(chunks: list[dict]) -> None:
-    print("\nSources:\n")
+def describe_source(chunk: dict) -> dict:
+    return {
+        "chunk_id": chunk.get("chunk_id"),
+        "project_path": chunk["project_path"],
+        "file_path": chunk["file_path"],
+        "start_line": chunk["start_line"],
+        "end_line": chunk["end_line"],
+        "commit_id": chunk["last_commit_id"],
+        "citation": create_citation(chunk),
+        "url": create_source_url(chunk),
+        "content": chunk["content"],
+    }
 
-    for chunk in chunks:
-        print(create_citation(chunk))
-        print(create_source_url(chunk))
-        print()
 
-
-def answer_question(
+def generate_answer(
     question: str,
     index: dict,
     top_k: int = TOP_K,
     retrieval_only: bool = False,
-) -> None:
-    best_indices, related_identifiers = retrieve(question, index, top_k)
-    retrieved_chunks = [index["chunks"][i] for i in best_indices]
+    retrieve_lock=None,
+) -> dict:
+    """
+    Answer a question and return the result as data:
 
-    print("\nRelated code identifiers:")
+    {
+      "related_identifiers": [...],
+      "facts": [{"text": "...", "source": 0}, ...],
+      "sources": [{citation, url, file_path, ...}, ...],
+      "retrieval_only": bool,
+    }
 
-    if related_identifiers:
-        print(", ".join(related_identifiers))
+    Each fact's "source" is a position in "sources". In retrieval-only
+    mode "facts" is empty and "sources" lists everything retrieved.
+    `retrieve_lock` optionally serializes access to the shared embedding
+    model when several threads answer questions at once.
+    """
+
+    if retrieve_lock is None:
+        best_indices, related_identifiers = retrieve(question, index, top_k)
     else:
-        print("None found")
+        with retrieve_lock:
+            best_indices, related_identifiers = retrieve(
+                question,
+                index,
+                top_k,
+            )
+
+    retrieved_chunks = [index["chunks"][i] for i in best_indices]
 
     # Skip the language model and only show what retrieval found
     if retrieval_only:
-        print_sources(retrieved_chunks)
-        return
+        return {
+            "related_identifiers": related_identifiers,
+            "facts": [],
+            "sources": [describe_source(chunk) for chunk in retrieved_chunks],
+            "retrieval_only": True,
+        }
 
     # Extract grounded facts one source at a time
     answer_facts = []
@@ -445,26 +484,66 @@ def answer_question(
         facts = extract_facts(question, chunk)
 
         if facts:
-            answer_facts.extend(facts)
+            facts = facts[:MAX_TOTAL_FACTS - len(answer_facts)]
+            answer_facts.extend(
+                {"text": fact, "source": len(used_chunks)}
+                for fact in facts
+            )
             used_chunks.append(chunk)
 
         if len(answer_facts) >= MAX_TOTAL_FACTS:
             break
 
-    answer_facts = answer_facts[:MAX_TOTAL_FACTS]
+    return {
+        "related_identifiers": related_identifiers,
+        "facts": answer_facts,
+        "sources": [describe_source(chunk) for chunk in used_chunks],
+        "retrieval_only": False,
+    }
+
+
+def print_sources(sources: list[dict]) -> None:
+    print("\nSources:\n")
+
+    for source in sources:
+        print(source["citation"])
+        print(source["url"])
+        print()
+
+
+def answer_question(
+    question: str,
+    index: dict,
+    top_k: int = TOP_K,
+    retrieval_only: bool = False,
+) -> None:
+    result = generate_answer(question, index, top_k, retrieval_only)
+    sources = result["sources"]
+
+    print("\nRelated code identifiers:")
+
+    if result["related_identifiers"]:
+        print(", ".join(result["related_identifiers"]))
+    else:
+        print("None found")
+
+    if retrieval_only:
+        print_sources(sources)
+        return
 
     print("\nAnswer:\n")
 
-    if answer_facts:
-        for fact in answer_facts:
-            print(fact)
+    if result["facts"]:
+        for fact in result["facts"]:
+            citation = sources[fact["source"]]["citation"]
+            print(f"- {fact['text']} {citation}")
     else:
         print(
             "- I couldn't find enough evidence in the "
             "retrieved repository sources."
         )
 
-    print_sources(used_chunks)
+    print_sources(sources)
 
 
 def parse_arguments() -> argparse.Namespace:
