@@ -4,9 +4,25 @@
 
 RepoMentor helps new developers explore a company’s repositories without reading every file manually. It ingests source code and documentation from GitLab, retrieves the code most relevant to a natural-language question, and uses a local language model to produce an evidence-backed answer with links to exact files, commits, and line ranges.
 
-> **Project status:** Working prototype with a command-line interface and a React web chat. Package-level modularization and automated synchronization are planned next.
+> **Project status:** Working research prototype with a command-line interface, a React web chat, reproducible retrieval ablations and manually reviewed answer-quality evaluation. The current priority is improving retrieval selection and grounded generation.
 
 ![RepoMentor web interface: a chat about a repository with cited facts and their sources](docs/screenshots/web-chat.jpg)
+
+## Evaluation Snapshot
+
+RepoMentor is evaluated in two stages because strong retrieval does not automatically produce a correct answer.
+
+| Evaluation layer | Current result | Benchmark |
+| --- | ---: | --- |
+| Best retrieval Hit@5 | **93.8%** | Semantic search, 16 questions |
+| Best retrieval Recall@5 | **90.6%** | Semantic search, 16 questions |
+| Best retrieval MRR@5 | **76.5%** | Semantic search, 16 questions |
+| Gold-fact coverage | **27.6%** | Local generation, 10 questions / 29 facts |
+| Faithful substantive answers | **50.0%** | Human-reviewed |
+| Citation-correct substantive answers | **50.0%** | Human-reviewed |
+| Unanswerable-question abstention | **100.0%** | 2 unanswerable questions |
+
+These are development-set results on one demonstration repository, not claims of general performance. They show that retrieval is promising, while the small local generator remains the main bottleneck.
 
 ## Why RepoMentor?
 
@@ -35,6 +51,8 @@ README files help, but they rarely capture the full implementation. Generic chat
 - Uses a local Ollama model to extract facts from one source at a time.
 - Appends citations programmatically instead of relying on the model to map citation numbers correctly.
 - Links citations to the exact GitLab commit and line range.
+- Compares semantic, BM25, hybrid, and expanded-hybrid retrieval through an ablation study.
+- Evaluates answer completeness, faithfulness, citation support, and abstention using a human-reviewed gold set.
 
 ## Architecture
 
@@ -47,11 +65,13 @@ flowchart TD
     D --> F[BM25 index]
     E --> G[Semantic retrieval]
     F --> H[Keyword retrieval]
-    G --> I[Rank fusion]
+    G --> I[Retrieval configuration]
     H --> I
-    I --> J[Identifier expansion]
+    I --> J[Optional fusion and expansion]
     J --> K[Source-by-source extraction]
     K --> L[Cited answer]
+    I --> M[Retrieval evaluation]
+    L --> N[Answer evaluation]
 ```
 
 ## RAG Pipeline
@@ -117,14 +137,16 @@ RepoMentor uses `sentence-transformers/all-MiniLM-L6-v2` to represent each chunk
 
 For the prototype, embeddings are stored as a NumPy array. This keeps the retrieval mathematics transparent before introducing a dedicated vector database.
 
-### 5. Hybrid Retrieval
+### 5. Retrieval
 
-RepoMentor combines two retrieval methods:
+RepoMentor implements four retrieval configurations for controlled comparison:
 
 - **Semantic retrieval:** compares the question embedding with chunk embeddings using cosine similarity.
 - **BM25 retrieval:** finds exact names and technical terms such as `verify_password` or `get_password_hash`.
+- **Hybrid retrieval:** combines semantic and BM25 rankings with Reciprocal Rank Fusion (RRF).
+- **Expanded hybrid retrieval:** extracts identifiers from initial matches and performs a deterministic second pass.
 
-The rankings are merged using **Reciprocal Rank Fusion (RRF)**. RepoMentor then examines strong initial matches, extracts related code identifiers, and performs a second deterministic retrieval pass. This helps bridge natural-language questions and implementation-specific names.
+The ablation study produced an important result: on the current 16-question natural-language benchmark, **semantic retrieval alone performed best**. BM25 was weak, and equal-weight fusion sometimes pushed relevant semantic matches down the ranking. The hybrid methods remain useful experiments, especially for future identifier-heavy questions, but the README does not treat extra complexity as an automatic improvement.
 
 ### 6. Grounded Generation
 
@@ -156,6 +178,38 @@ Example grounded output:
 ```
 
 Each citation is followed by a GitLab URL pinned to the relevant commit and line range.
+
+## Evaluation Results
+
+### Retrieval ablation
+
+Sixteen manually labeled onboarding questions were evaluated at multiple values of K. At `K=5`:
+
+| Method | Hit@5 | Recall@5 | MRR@5 |
+| --- | ---: | ---: | ---: |
+| Semantic | **0.938** | **0.906** | **0.765** |
+| BM25 | 0.500 | 0.406 | 0.226 |
+| Hybrid | 0.875 | 0.781 | 0.729 |
+| Expanded hybrid | 0.875 | 0.844 | 0.669 |
+
+At `K=10`, semantic retrieval reached `1.000` Hit@10 and Recall@10. Expanded hybrid reached `1.000` Hit@10 and `0.969` Recall@10. Error analysis showed that identifier expansion occasionally helped multi-file password questions, but also caused query drift toward related backend files.
+
+### Answer quality
+
+Ten questions were evaluated: eight answerable questions and two deliberately unanswerable questions. The gold set contains 29 required facts and known incorrect claims. Generated answers were manually reviewed rather than judged by the same model that produced them.
+
+| Metric | Result | Interpretation |
+| --- | ---: | --- |
+| Gold-fact coverage | 8/29 (**27.6%**) | Required facts stated accurately and with support |
+| Complete-answer rate | 0/8 (**0.0%**) | Answerable questions containing every required fact |
+| Answerable response rate | 6/8 (**75.0%**) | Questions answered instead of incorrectly refused |
+| Unanswerable abstention accuracy | 2/2 (**100.0%**) | Unsupported questions correctly refused |
+| Faithful substantive-answer rate | 3/6 (**50.0%**) | Non-refusal answers with no unsupported claims |
+| Citation-correct substantive-answer rate | 3/6 (**50.0%**) | Non-refusal answers whose citations supported their claims |
+| Known-error trigger rate | 2/22 (**9.1%**) | Predefined incorrect claims that appeared |
+| Mean expected-source recall | **56.2%** | Expected evidence files cited in final answers |
+
+The evaluation exposed cases where the system cited a real file but described it incorrectly. Citations improve traceability; they do not prove that an interpretation is correct.
 
 ## Technology Stack
 
@@ -196,10 +250,21 @@ repomentor/
 ├── expanded_hybrid_search.py
 ├── rag_answer.py
 ├── evaluate_retrieval.py
+├── evaluate_ablation.py
+├── analyze_retrieval_errors.py
+├── evaluate_answers.py
+├── review_answers.py
+├── score_answers.py
 ├── server.py                  # FastAPI backend for the web interface
 ├── frontend/                  # React chat interface (Vite + TypeScript)
 ├── evaluation/
-│   └── retrieval_questions.example.json
+│   ├── retrieval_questions.example.json
+│   ├── retrieval_questions.json
+│   ├── answer_questions.json
+│   ├── ablation_results.txt
+│   ├── retrieval_error_analysis.txt
+│   ├── generated_answers.json
+│   └── answer_evaluation_results.json
 └── data/                       # Generated locally; ignored by Git
     ├── repository_files.jsonl
     ├── chunks.jsonl
@@ -342,8 +407,6 @@ data/embeddings.npy
 python rag_answer.py
 ```
 
-Example:
-
 This starts an interactive session. The index and embedding model are loaded once, so you can ask several questions in a row. Press Enter or type `exit` to quit.
 
 ```text
@@ -363,7 +426,7 @@ python rag_answer.py "How does deployment work?" --top-k 8
 python rag_answer.py "Where are database models defined?" --retrieval-only
 ```
 
-### 12. Evaluate retrieval (optional)
+### 12. Evaluate retrieval
 
 Create `evaluation/retrieval_questions.json` from the example file and list, for each question, the files that should be retrieved:
 
@@ -383,7 +446,32 @@ python evaluate_retrieval.py --top-k 5
 
 The script runs the same retrieval pipeline as `rag_answer.py` (no LLM calls) and reports file-level **Hit@K**, **Recall@K**, and **MRR@K**, plus the expected files each question missed. Use it to compare chunking, embedding, and ranking changes objectively.
 
-### 13. Use the web interface (optional)
+Compare all retrieval configurations:
+
+```bash
+python evaluate_ablation.py
+python analyze_retrieval_errors.py
+```
+
+The ablation script compares semantic, BM25, hybrid, and expanded-hybrid retrieval. Error analysis shows which questions improve or regress, rather than relying only on averages.
+
+### 13. Evaluate generated answers
+
+Answer evaluation uses a gold set containing required facts, expected sources, known incorrect claims, and unanswerable questions:
+
+```bash
+python evaluate_answers.py
+python review_answers.py
+python score_answers.py
+```
+
+- `evaluate_answers.py` generates and stores answers for the benchmark.
+- `review_answers.py` collects human labels for fact coverage, unsupported claims, and citation support.
+- `score_answers.py` aggregates the reviewed labels into reproducible metrics.
+
+The local model is not used as its own factual judge. Human review is slower, but it avoids reporting self-evaluation as objective ground truth.
+
+### 14. Use the web interface (optional)
 
 The web interface lets you add several GitLab repositories, pick one, ask questions in a chat, and keeps every conversation in `data/repomentor.db`.
 
@@ -454,7 +542,7 @@ The sample corpus contains only a few hundred chunks, so exhaustive cosine simil
 
 ### Why hybrid retrieval?
 
-Semantic search handles meaning, while keyword search handles exact implementation identifiers. Codebase questions need both: a user might ask about “password handling,” while the code uses names such as `get_password_hash`, `verify_password`, `Argon2Hasher`, and `BcryptHasher`.
+Hybrid retrieval was implemented to test a reasonable code-search hypothesis: semantic search handles meaning, while BM25 handles exact identifiers such as `get_password_hash`. The ablation results did not support equal-weight fusion on the current natural-language benchmark; semantic search performed better. The hybrid implementation is retained as an experiment and a baseline for future identifier-heavy evaluation, not presented as the final answer by default.
 
 ### Why attach citations in Python?
 
@@ -471,13 +559,19 @@ Small models can cite the wrong source number even when the correct evidence was
 - Access control currently depends on the configured GitLab token rather than individual application users.
 - The command-line scripts index one configured repository per run; the web interface supports several.
 - Follow-up questions in a chat are answered independently; earlier messages are not used as context.
-- Retrieval evaluation requires a hand-written question set; generation evaluation is not yet automated.
+- Evaluation uses small, manually labeled development sets from one repository.
+- Answer review is intentionally human-in-the-loop and is not yet suitable for large benchmarks.
+- The current expanded-hybrid production path is not the strongest method on the present retrieval benchmark.
 
 ## Roadmap
 
 - [ ] Refactor ingestion, chunking, retrieval, and generation into reusable modules.
 - [x] Add retrieval evaluation with Hit@K, Recall@K, and expected-file ground truth.
-- [ ] Add answer-level citation and faithfulness evaluation.
+- [x] Add retrieval ablation and per-question error analysis.
+- [x] Add answer-level completeness, citation, faithfulness, and abstention evaluation.
+- [ ] Select retrieval dynamically or make semantic retrieval the default after held-out validation.
+- [ ] Improve evidence extraction and refusal logic using the answer-level error analysis.
+- [ ] Expand the benchmark and separate development and held-out test questions.
 - [ ] Add code-aware chunking with Tree-sitter.
 - [ ] Add a reranking model for top retrieval candidates.
 - [ ] Replace the NumPy prototype with PostgreSQL/pgvector or another vector store.
@@ -488,18 +582,18 @@ Small models can cite the wrong source number even when the correct evidence was
 - [ ] Add Docker-based local deployment.
 - [ ] Add automated tests and continuous integration.
 
-## Evaluation Plan
+## Evaluation Methodology
 
-The next milestone is a small benchmark of natural-language onboarding questions. Each question will include expected source files so retrieval can be measured independently of generation.
+Retrieval and generation are measured separately so failures can be traced to the correct stage.
 
-Planned retrieval metrics:
+Retrieval metrics:
 
 - **Hit@K:** whether at least one expected file appears in the top K results;
 - **Recall@K:** the fraction of expected files present in the top K results;
 - **Mean Reciprocal Rank:** how early the first relevant file appears;
 - **source diversity:** whether retrieval returns complementary implementation evidence instead of repeated chunks from one file.
 
-Generation will be evaluated separately for factual support, citation validity, source coverage, abstention, and unsupported claims.
+Generation metrics include gold-fact coverage, complete-answer rate, answerable response rate, unanswerable abstention accuracy, faithfulness, citation correctness, expected-source recall, and known-error triggers. The current numbers are development baselines intended to guide engineering decisions, not leaderboard-style claims.
 
 ## Demonstration Corpus
 

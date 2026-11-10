@@ -1,0 +1,102 @@
+[
+  {
+    "question": "How are passwords hashed and verified?",
+    "expected_files": [
+      "backend/app/core/security.py"
+    ]
+  },
+  {
+    "question": "How is a new user created and their password stored?",
+    "expected_files": [
+      "backend/app/crud.py"
+    ]
+  },
+  {
+    "question": "How can a logged-in user change their password?",
+    "expected_files": [
+      "backend/app/api/routes/users.py",
+      "backend/app/core/security.py"
+    ]
+  },
+  {
+    "question": "How does password recovery and reset work?",
+    "expected_files": [
+      "backend/app/api/routes/login.py",
+      "backend/app/utils.py"
+    ]
+  },
+  {
+    "question": "How does login create an access token?",
+    "expected_files": [
+      "backend/app/api/routes/login.py",
+      "backend/app/core/security.py"
+    ]
+  },
+  {
+    "question": "How is the current authenticated user resolved from a token?",
+    "expected_files": [
+      "backend/app/api/deps.py"
+    ]
+  },
+  {
+    "question": "Where are the API routers registered?",
+    "expected_files": [
+      "backend/app/api/main.py"
+    ]
+  },
+  {
+    "question": "How is the FastAPI application configured and started?",
+    "expected_files": [
+      "backend/app/main.py"
+    ]
+  },
+  {
+    "question": "Where are application settings and environment variables defined?",
+    "expected_files": [
+      "backend/app/core/config.py"
+    ]
+  },
+  {
+    "question": "How is the database initialized with the first superuser?",
+    "expected_files": [
+      "backend/app/core/db.py",
+      "backend/app/initial_data.py"
+    ]
+  },
+  {
+    "question": "Where are the User and Item database models defined?",
+    "expected_files": [
+      "backend/app/models.py"
+    ]
+  },
+  {
+    "question": "How are items listed, created, updated, and deleted?",
+    "expected_files": [
+      "backend/app/api/routes/items.py"
+    ]
+  },
+  {
+    "question": "How does the frontend store the access token and manage login and logout?",
+    "expected_files": [
+      "frontend/src/hooks/useAuth.ts"
+    ]
+  },
+  {
+    "question": "How does the frontend validate and submit a password change?",
+    "expected_files": [
+      "frontend/src/components/UserSettings/ChangePassword.tsx"
+    ]
+  },
+  {
+    "question": "Which Docker services run the application locally?",
+    "expected_files": [
+      "compose.yml"
+    ]
+  },
+  {
+    "question": "How are the user API endpoints tested?",
+    "expected_files": [
+      "backend/tests/api/routes/test_users.py"
+    ]
+  }
+]

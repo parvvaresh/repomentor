@@ -1,0 +1,484 @@
+[
+  {
+    "id": "password_hashing",
+    "question": "How are passwords hashed and verified?",
+    "answerable": true,
+    "answer": "- Passwords are hashed using a combination of `Argon2Hasher` and `BcryptHasher` from the `pwdlib` library. [backend/app/core/security.py:1-36]\n- Passwords are verified using the `verify_and_update` method from the `password_hash` object. [backend/app/core/security.py:1-36]\n- Passwords are hashed using the `get_password_hash` function, which generates a secure hash from the input password. [backend/app/api/routes/users.py:101-160]\n- Password verification is done using the `verify_password` function, which checks if the provided password matches the stored hash. [backend/app/api/routes/users.py:101-160]\n- Passwords are hashed using the `get_password_hash` function, which applies Argon2id with a dummy hash when the user does not exist to prevent timing attacks. [backend/app/crud.py:1-60]\n- Passwords are verified using the `verify_password` function, which compares the provided password with the stored hash. [backend/app/crud.py:1-60]",
+    "full_output": "\nRelated code identifiers:\nhashed_password, verify_password, new_password, updated_password_hash, get_password_hash, current_password, FIRST_SUPERUSER_PASSWORD, password_hash, confirm_password, plain_password, update_password_me, test_login_with_argon2_password_keeps_hash, test_update_password_me_incorrect_password, test_update_password_me_same_password_error, test_reset_password_invalid_token, test_login_with_bcrypt_password_upgrades_to_argon2\n\nAnswer:\n\n- Passwords are hashed using a combination of `Argon2Hasher` and `BcryptHasher` from the `pwdlib` library. [backend/app/core/security.py:1-36]\n- Passwords are verified using the `verify_and_update` method from the `password_hash` object. [backend/app/core/security.py:1-36]\n- Passwords are hashed using the `get_password_hash` function, which generates a secure hash from the input password. [backend/app/api/routes/users.py:101-160]\n- Password verification is done using the `verify_password` function, which checks if the provided password matches the stored hash. [backend/app/api/routes/users.py:101-160]\n- Passwords are hashed using the `get_password_hash` function, which applies Argon2id with a dummy hash when the user does not exist to prevent timing attacks. [backend/app/crud.py:1-60]\n- Passwords are verified using the `verify_password` function, which compares the provided password with the stored hash. [backend/app/crud.py:1-60]\n\nSources:\n\n[backend/app/core/security.py:1-36]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/14728b636cab02f0ce7633c134b5d28855ba2ac7/backend/app/core/security.py#L1-36\n\n[backend/app/api/routes/users.py:101-160]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/2fdd62ce0c308252a3b3c84d8a543bd2264d0850/backend/app/api/routes/users.py#L101-160\n\n[backend/app/crud.py:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/689d7105e12039db84bb0e0c0cc797ca086192db/backend/app/crud.py#L1-60\n\n",
+    "expected_sources": [
+      "backend/app/core/security.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/users.py",
+      "backend/app/core/security.py",
+      "backend/app/crud.py"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "PasswordHash is configured with Argon2Hasher and BcryptHasher.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "get_password_hash hashes a plaintext password using password_hash.hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "verify_password calls password_hash.verify_and_update with the plaintext password and stored hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "Argon2 and bcrypt are both applied to every password.",
+          "present": true
+        },
+        {
+          "claim": "get_password_hash uses a dummy hash when a user does not exist.",
+          "present": true
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": false,
+      "notes": "Misrepresents bcrypt and incorrectly connects the dummy hash to get_password_hash.",
+      "all_citations_support_claims": false
+    }
+  },
+  {
+    "id": "change_own_password",
+    "question": "How can a logged-in user change their password?",
+    "answerable": true,
+    "answer": "- I couldn't find enough evidence in the retrieved repository sources.",
+    "full_output": "\nRelated code identifiers:\nhashed_password, new_password, user_db, db_user, FIRST_SUPERUSER_PASSWORD, verify_password, current_user, updated_user, current_password, user_in, user_create, user_query, get_password_hash, normal_user_token_headers, user_data, get_user_by_email, create_user, updated_password_hash, created_user, session_user, update_password_me, read_user_me, delete_user_me, register_user, test_update_password_me_incorrect_password\n\nAnswer:\n\n- I couldn't find enough evidence in the retrieved repository sources.\n\nSources:\n\n",
+    "expected_sources": [
+      "backend/app/api/routes/users.py"
+    ],
+    "cited_sources": [],
+    "expected_source_recall": 0.0,
+    "abstained": true,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The password-change endpoint is PATCH /me/password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The endpoint verifies the current password against the authenticated user's stored hash.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "It rejects an incorrect current password and a new password identical to the current password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "It hashes the new password, stores the hash on the user, and commits the database session.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The new password is stored as plaintext.",
+          "present": false
+        },
+        {
+          "claim": "The current password is not required.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Incorrectly abstained even though the repository contains sufficient evidence.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "password_recovery",
+    "question": "How does password recovery and reset work?",
+    "answerable": true,
+    "answer": "- Password recovery and reset involve sending a reset token to the user's email address, which is then used to generate a new password. [backend/app/api/routes/login.py:101-123]\n- The process requires the user to provide their email address, and if the user exists in the system, a reset token is generated and an email is sent with the token. [backend/app/api/routes/login.py:101-123]\n- Password recovery and reset are handled through a token-based system, where a reset token is generated and sent to the user's email. [backend/app/utils.py:101-125]\n- The token is encoded using JWT (JSON Web Token) and expires after a specified duration based on the settings. [backend/app/utils.py:101-125]\n- Password recovery and reset typically involves sending a link or a button to the user's email, which they click to regain access to their account. [packages/react-email/emails/reset_password.tsx:1-60]\n- The link expires after a specified number of hours, and the user must click it within that time frame to complete the password reset. [packages/react-email/emails/reset_password.tsx:1-60]",
+    "full_output": "\nRelated code identifiers:\ngenerate_password_reset_token, new_password, password_reset_token, generate_reset_password_email, verify_password_reset_token, EMAIL_RESET_TOKEN_EXPIRE_HOURS, SMTP_PASSWORD, recover_password_html_content, recover_password, reset_password, confirm_password, test_recovery_password_user_not_exits, test_reset_password, verify_password, hashed_password, POSTGRES_PASSWORD, FIRST_SUPERUSER_PASSWORD\n\nAnswer:\n\n- Password recovery and reset involve sending a reset token to the user's email address, which is then used to generate a new password. [backend/app/api/routes/login.py:101-123]\n- The process requires the user to provide their email address, and if the user exists in the system, a reset token is generated and an email is sent with the token. [backend/app/api/routes/login.py:101-123]\n- Password recovery and reset are handled through a token-based system, where a reset token is generated and sent to the user's email. [backend/app/utils.py:101-125]\n- The token is encoded using JWT (JSON Web Token) and expires after a specified duration based on the settings. [backend/app/utils.py:101-125]\n- Password recovery and reset typically involves sending a link or a button to the user's email, which they click to regain access to their account. [packages/react-email/emails/reset_password.tsx:1-60]\n- The link expires after a specified number of hours, and the user must click it within that time frame to complete the password reset. [packages/react-email/emails/reset_password.tsx:1-60]\n\nSources:\n\n[backend/app/api/routes/login.py:101-123]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/689d7105e12039db84bb0e0c0cc797ca086192db/backend/app/api/routes/login.py#L101-123\n\n[backend/app/utils.py:101-125]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/10dd26c613409be5a703cf731403c2f0ab2ee268/backend/app/utils.py#L101-125\n\n[packages/react-email/emails/reset_password.tsx:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/00a6aa978e467cb6f39bc90bbb0b2d61e909274f/packages/react-email/emails/reset_password.tsx#L1-60\n\n",
+    "expected_sources": [
+      "backend/app/api/routes/login.py",
+      "backend/app/utils.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/login.py",
+      "backend/app/utils.py",
+      "packages/react-email/emails/reset_password.tsx"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The password-recovery route looks up the user by email and generates a password-reset token.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "A password-recovery email containing the reset information is sent to the user.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Reset tokens are JWTs containing the user's email as the subject and an expiration time.",
+          "expected_source": "backend/app/utils.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The reset route verifies the token, finds the user, hashes the new password, and commits the change.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The reset token contains the user's plaintext password.",
+          "present": false
+        },
+        {
+          "claim": "The new password is stored without hashing.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": false,
+      "notes": "- Partially correct, but misses token verification and password update logic. It also inaccurately says the token generates a new password.",
+      "all_citations_support_claims": false
+    }
+  },
+  {
+    "id": "authenticated_user",
+    "question": "How is the current authenticated user resolved from an access token?",
+    "answerable": true,
+    "answer": "- I couldn't find enough evidence in the retrieved repository sources.",
+    "full_output": "\nRelated code identifiers:\ncurrent_user, access_token, user_in, user_id, superuser_token_headers, normal_user_token_headers, get_user_by_email, existing_user, user_create, db_user, authenticated_user, create_user, SMTP_USER, a_token, token_urlsafe, get_current_active_superuser, generate_password_reset_token, user_authentication_headers, create_random_user, created_user, update_user, verify_password_reset_token, access_token_expires, create_access_token, get_current_user\n\nAnswer:\n\n- I couldn't find enough evidence in the retrieved repository sources.\n\nSources:\n\n",
+    "expected_sources": [
+      "backend/app/api/deps.py"
+    ],
+    "cited_sources": [],
+    "expected_source_recall": 0.0,
+    "abstained": true,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The bearer token is obtained through OAuth2PasswordBearer.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The token is decoded using the configured secret key and JWT algorithm.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The decoded token subject is used to retrieve the user from the database.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "Invalid tokens or missing users cause an HTTP error instead of authenticating the request.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The access token stores the user's plaintext password.",
+          "present": false
+        },
+        {
+          "claim": "The token is trusted without being decoded or validated.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Incorrectly abstained despite available evidence in deps.py.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "fastapi_configuration",
+    "question": "How is the FastAPI application configured?",
+    "answerable": true,
+    "answer": "- The FastAPI application is configured to use the `DATABASE_URL` environment variable, which is set automatically when using a database integration. [deployment.md:1-60]\n- The application requires the `SECRET_KEY` and `FIRST_SUPERUSER_PASSWORD` environment variables, which can be generated using the command `python -c \"import secrets; print(secrets.token_urlsafe(32))\". [deployment.md:1-60]\n- The FastAPI application is configured using the `uv` command with environment variables such as `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID` for deployment. [.github/workflows/deploy.yml:1-54]\n- The frontend dependencies are installed using `bun ci` and built with `bun run --filter frontend build`. [.github/workflows/deploy.yml:1-54]\n- The FastAPI application is configured using the backend and frontend development documentation provided in the repository, which includes instructions for local development and deployment. [README.md:51-88]\n- The FastAPI application is deployed using Cloud deployment and Docker Compose for self-hosted deployment, as indicated in the documentation files. [README.md:51-88]",
+    "full_output": "\nRelated code identifiers:\nFASTAPI_CLOUD_TOKEN, FASTAPI_CLOUD_APP_ID, FASTAPI_ENV\n\nAnswer:\n\n- The FastAPI application is configured to use the `DATABASE_URL` environment variable, which is set automatically when using a database integration. [deployment.md:1-60]\n- The application requires the `SECRET_KEY` and `FIRST_SUPERUSER_PASSWORD` environment variables, which can be generated using the command `python -c \"import secrets; print(secrets.token_urlsafe(32))\". [deployment.md:1-60]\n- The FastAPI application is configured using the `uv` command with environment variables such as `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID` for deployment. [.github/workflows/deploy.yml:1-54]\n- The frontend dependencies are installed using `bun ci` and built with `bun run --filter frontend build`. [.github/workflows/deploy.yml:1-54]\n- The FastAPI application is configured using the backend and frontend development documentation provided in the repository, which includes instructions for local development and deployment. [README.md:51-88]\n- The FastAPI application is deployed using Cloud deployment and Docker Compose for self-hosted deployment, as indicated in the documentation files. [README.md:51-88]\n\nSources:\n\n[deployment.md:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/2d8fb3e4defa61d84ac8bd23faa93b626cda7f3c/deployment.md#L1-60\n\n[.github/workflows/deploy.yml:1-54]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/4d1a75de20291f5148f717dc301d3c1bc4826c36/.github/workflows/deploy.yml#L1-54\n\n[README.md:51-88]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/9a5c827ba6e66ae989950ca520fcdc3da35ec240/README.md#L51-88\n\n",
+    "expected_sources": [
+      "backend/app/main.py"
+    ],
+    "cited_sources": [
+      ".github/workflows/deploy.yml",
+      "README.md",
+      "deployment.md"
+    ],
+    "expected_source_recall": 0.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The application creates a FastAPI instance using values from the application settings.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "CORS middleware is added using the configured allowed origins.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The main API router is included under the configured API version prefix.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The application is implemented with Django.",
+          "present": false
+        },
+        {
+          "claim": "All API routes are declared directly inside backend/app/main.py.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Provides deployment information instead of explaining the FastAPI application configuration.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "first_superuser",
+    "question": "How is the database initialized with the first superuser?",
+    "answerable": true,
+    "answer": "- The database is initialized by creating a superuser with the email `settings.FIRST_SUPERUSER` and password `settings.FIRST_SUPERUSER_PASSWORD` using the `crud.create_user` function. [backend/app/core/db.py:1-33]\n- The `init_db` function uses a session to check if a superuser already exists and creates one if not. [backend/app/core/db.py:1-33]\n- The first superuser is initialized with the value specified in the `FIRST_SUPERUSER` environment variable. [compose.yml:51-88]\n- The database URL is set to `postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/app`, indicating the database is initialized with a PostgreSQL connection. [compose.yml:51-88]",
+    "full_output": "\nRelated code identifiers:\nFIRST_SUPERUSER_PASSWORD, FIRST_SUPERUSER, is_superuser, DATABASE_URL, superuser_token_headers, get_current_active_superuser, test_get_existing_user_as_superuser, test_check_if_user_is_superuser, test_check_if_user_is_superuser_normal_user, test_get_users_superuser_me, test_get_non_existing_user_as_superuser\n\nAnswer:\n\n- The database is initialized by creating a superuser with the email `settings.FIRST_SUPERUSER` and password `settings.FIRST_SUPERUSER_PASSWORD` using the `crud.create_user` function. [backend/app/core/db.py:1-33]\n- The `init_db` function uses a session to check if a superuser already exists and creates one if not. [backend/app/core/db.py:1-33]\n- The first superuser is initialized with the value specified in the `FIRST_SUPERUSER` environment variable. [compose.yml:51-88]\n- The database URL is set to `postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/app`, indicating the database is initialized with a PostgreSQL connection. [compose.yml:51-88]\n\nSources:\n\n[backend/app/core/db.py:1-33]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/f8dd304eeb87ba784a33a6a22504c9a07a363c54/backend/app/core/db.py#L1-33\n\n[compose.yml:51-88]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/041807b94674e041efa5a50cceb205e9b4c96979/compose.yml#L51-88\n\n",
+    "expected_sources": [
+      "backend/app/core/db.py",
+      "backend/app/initial_data.py"
+    ],
+    "cited_sources": [
+      "backend/app/core/db.py",
+      "compose.yml"
+    ],
+    "expected_source_recall": 0.5,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The initialization entry point opens a database session and calls init_db.",
+          "expected_source": "backend/app/initial_data.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "init_db checks whether the configured first-superuser email already exists.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "If the user does not exist, it creates a superuser using the configured email and password.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "A new first superuser is created every time initialization runs.",
+          "present": false
+        },
+        {
+          "claim": "The superuser password is hard-coded directly in initial_data.py.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Mostly correct, but omits initial_data.py opening a session and calling init_db.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "frontend_authentication",
+    "question": "How does the frontend store the access token and manage login and logout?",
+    "answerable": true,
+    "answer": "- The frontend store the access token in the response from the login endpoint, which is returned as `access_token` in the `Token` object. [backend/app/api/routes/login.py:1-60]\n- The access token is expired after a set number of minutes, determined by the `ACCESS_TOKEN_EXPIRE_MINUTES` configuration setting. [backend/app/api/routes/login.py:1-60]\n- The access token is stored in the browser's local storage under the key \"access_token\" when a user successfully logs in. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend manages login and logout by using React Query to invalidate cached data upon logout and by handling the access token storage and retrieval in the `login` function. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend stores the access token in the `token` variable, which is obtained using the `OAuth2PasswordBearer` dependency. [backend/app/api/deps.py:1-57]\n- The access token is decoded using the `jwt.decode` function with the secret key `settings.SECRET_KEY` and the algorithm `security.ALGORITHM`. [backend/app/api/deps.py:1-57]",
+    "full_output": "\nRelated code identifiers:\naccess_token, Body_login_login_access_token, generate_password_reset_token, access_token_expires, create_access_token, token_data, login_data, password_reset_token, invalid_token, verify_password_reset_token, login_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, test_token, test_login_with_argon2_password_keeps_hash, FRONTEND_HOST, GH_TOKEN\n\nAnswer:\n\n- The frontend store the access token in the response from the login endpoint, which is returned as `access_token` in the `Token` object. [backend/app/api/routes/login.py:1-60]\n- The access token is expired after a set number of minutes, determined by the `ACCESS_TOKEN_EXPIRE_MINUTES` configuration setting. [backend/app/api/routes/login.py:1-60]\n- The access token is stored in the browser's local storage under the key \"access_token\" when a user successfully logs in. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend manages login and logout by using React Query to invalidate cached data upon logout and by handling the access token storage and retrieval in the `login` function. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend stores the access token in the `token` variable, which is obtained using the `OAuth2PasswordBearer` dependency. [backend/app/api/deps.py:1-57]\n- The access token is decoded using the `jwt.decode` function with the secret key `settings.SECRET_KEY` and the algorithm `security.ALGORITHM`. [backend/app/api/deps.py:1-57]\n\nSources:\n\n[backend/app/api/routes/login.py:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/689d7105e12039db84bb0e0c0cc797ca086192db/backend/app/api/routes/login.py#L1-60\n\n[frontend/src/hooks/useAuth.ts:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/a8f1ba0e70e96414fa020cd3bede7daac73fd753/frontend/src/hooks/useAuth.ts#L1-60\n\n[backend/app/api/deps.py:1-57]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/14728b636cab02f0ce7633c134b5d28855ba2ac7/backend/app/api/deps.py#L1-57\n\n",
+    "expected_sources": [
+      "frontend/src/hooks/useAuth.ts"
+    ],
+    "cited_sources": [
+      "backend/app/api/deps.py",
+      "backend/app/api/routes/login.py",
+      "frontend/src/hooks/useAuth.ts"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The frontend login function requests an access token from the login service.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        },
+        {
+          "fact": "The returned access token is stored in localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Logging out removes the access token from localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": false
+        },
+        {
+          "fact": "Logout clears cached query data and navigates the user to the login page.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The frontend stores the user's plaintext password in localStorage.",
+          "present": false
+        },
+        {
+          "claim": "Logging out leaves the access token in localStorage.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": false,
+      "notes": "- Mixes frontend and backend token handling and does not clearly explain logout navigation or token removal.",
+      "all_citations_support_claims": false
+    }
+  },
+  {
+    "id": "docker_services",
+    "question": "Which Docker services run the application locally?",
+    "answerable": true,
+    "answer": "- The `proxy` service runs the application locally using Traefik with Docker integration. [compose.yml:1-60]\n- The `backend` service runs the application locally with the specified image and depends on the `db` service for functionality. [compose.yml:1-60]\n- Docker Compose runs the backend and frontend services locally. [development.md:51-110]\n- The application is served by FastAPI at <http://localhost:8000> and the frontend is rebuilt after changes. [development.md:51-110]\n- The `backend` service runs the application locally using Docker with the command `fastapi dev --host \"0.0.0.0\"`. [compose.override.yml:1-60]\n- The `db` service runs the database locally using Docker with the port `5432`. [compose.override.yml:1-60]",
+    "full_output": "\nRelated code identifiers:\nservice_healthy\n\nAnswer:\n\n- The `proxy` service runs the application locally using Traefik with Docker integration. [compose.yml:1-60]\n- The `backend` service runs the application locally with the specified image and depends on the `db` service for functionality. [compose.yml:1-60]\n- Docker Compose runs the backend and frontend services locally. [development.md:51-110]\n- The application is served by FastAPI at <http://localhost:8000> and the frontend is rebuilt after changes. [development.md:51-110]\n- The `backend` service runs the application locally using Docker with the command `fastapi dev --host \"0.0.0.0\"`. [compose.override.yml:1-60]\n- The `db` service runs the database locally using Docker with the port `5432`. [compose.override.yml:1-60]\n\nSources:\n\n[compose.yml:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/041807b94674e041efa5a50cceb205e9b4c96979/compose.yml#L1-60\n\n[development.md:51-110]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/981ae061b442cdd77ed410a1c42aa8a7f079729e/development.md#L51-110\n\n[compose.override.yml:1-60]\nhttps://gitlab.com/amir-hri/demo-company-app/-/blob/041807b94674e041efa5a50cceb205e9b4c96979/compose.override.yml#L1-60\n\n",
+    "expected_sources": [
+      "compose.yml"
+    ],
+    "cited_sources": [
+      "compose.override.yml",
+      "compose.yml",
+      "development.md"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The Compose configuration defines a PostgreSQL database service.",
+          "expected_source": "compose.yml",
+          "present_and_supported": false
+        },
+        {
+          "fact": "It defines a prestart service for initialization tasks.",
+          "expected_source": "compose.yml",
+          "present_and_supported": false
+        },
+        {
+          "fact": "It defines backend and frontend application services.",
+          "expected_source": "compose.yml",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It includes Adminer for database administration.",
+          "expected_source": "compose.yml",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The local database service uses MongoDB.",
+          "present": false
+        },
+        {
+          "claim": "The application runs without backend or frontend services.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Finds some services but misses the prestart and Adminer services and does not explicitly identify PostgreSQL.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "payment_processing",
+    "question": "How are customer payments processed?",
+    "answerable": false,
+    "answer": "- I couldn't find enough evidence in the retrieved repository sources.",
+    "full_output": "\nRelated code identifiers:\nNone found\n\nAnswer:\n\n- I couldn't find enough evidence in the retrieved repository sources.\n\nSources:\n\n",
+    "expected_sources": [],
+    "cited_sources": [],
+    "expected_source_recall": null,
+    "abstained": true,
+    "manual_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "Payments are processed using Stripe.",
+          "present": false
+        },
+        {
+          "claim": "Payments are processed using PayPal.",
+          "present": false
+        },
+        {
+          "claim": "The repository implements a payment-processing workflow.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Correctly abstained because payment processing is not documented.",
+      "all_citations_support_claims": true
+    }
+  },
+  {
+    "id": "api_rate_limiting",
+    "question": "How are API requests rate-limited?",
+    "answerable": false,
+    "answer": "- I couldn't find enough evidence in the retrieved repository sources.",
+    "full_output": "\nRelated code identifiers:\npull_request_target, pull_request\n\nAnswer:\n\n- I couldn't find enough evidence in the retrieved repository sources.\n\nSources:\n\n",
+    "expected_sources": [],
+    "cited_sources": [],
+    "expected_source_recall": null,
+    "abstained": true,
+    "manual_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "The application uses Redis for rate limiting.",
+          "present": false
+        },
+        {
+          "claim": "The application limits every user to a specific number of requests.",
+          "present": false
+        },
+        {
+          "claim": "The repository implements API rate-limiting middleware.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "notes": "- Correctly abstained because rate limiting is not documented.",
+      "all_citations_support_claims": true
+    }
+  }
+]

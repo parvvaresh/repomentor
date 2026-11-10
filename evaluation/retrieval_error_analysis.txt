@@ -1,0 +1,222 @@
+
+Question: How are passwords hashed and verified?
+Expected: ['backend/app/core/security.py']
+
+Semantic:
+  1. backend/app/crud.py
+  2. backend/app/core/security.py
+  3. backend/app/api/routes/users.py
+  4. frontend/src/components/Admin/EditUser.tsx
+  5. frontend/src/components/Admin/AddUser.tsx
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/core/security.py
+  2. backend/app/api/routes/users.py
+  3. backend/app/crud.py
+  4. backend/app/api/routes/login.py
+  5. backend/tests/api/routes/test_login.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How can a logged-in user change their password?
+Expected: ['backend/app/api/routes/users.py', 'backend/app/core/security.py']
+
+Semantic:
+  1. backend/app/api/routes/users.py
+  2. frontend/src/routes/reset-password.tsx
+  3. backend/app/crud.py
+  4. frontend/src/components/UserSettings/ChangePassword.tsx
+  5. packages/react-email/emails/reset_password.tsx
+  Missing: ['backend/app/core/security.py']
+
+Expanded hybrid:
+  1. backend/app/api/routes/users.py
+  2. backend/app/crud.py
+  3. backend/tests/api/routes/test_users.py
+  4. backend/app/api/routes/login.py
+  5. backend/app/core/security.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How is the current authenticated user resolved from a token?
+Expected: ['backend/app/api/deps.py']
+
+Semantic:
+  1. frontend/src/hooks/useAuth.ts
+  2. backend/app/api/routes/login.py
+  3. backend/app/api/deps.py
+  4. backend/app/core/security.py
+  5. backend/app/utils.py
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/api/routes/login.py
+  2. backend/app/api/deps.py
+  3. backend/app/api/routes/users.py
+  4. frontend/src/hooks/useAuth.ts
+  5. backend/app/utils.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How is the FastAPI application configured and started?
+Expected: ['backend/app/main.py']
+
+Semantic:
+  1. backend/app/api/main.py
+  2. development.md
+  3. README.md
+  4. deployment.md
+  5. backend/app/main.py
+  Missing: []
+
+Expanded hybrid:
+  1. deployment.md
+  2. .github/workflows/deploy.yml
+  3. development.md
+  4. README.md
+  5. backend/app/api/main.py
+  Missing: ['backend/app/main.py']
+----------------------------------------------------------------------
+
+Question: Where are application settings and environment variables defined?
+Expected: ['backend/app/core/config.py']
+
+Semantic:
+  1. development.md
+  2. backend/app/alembic/env.py
+  3. .github/dependabot.yml
+  4. frontend/playwright.config.ts
+  5. frontend/tests/config.ts
+  Missing: ['backend/app/core/config.py']
+
+Expanded hybrid:
+  1. backend/app/alembic/env.py
+  2. backend/app/core/config.py
+  3. README.md
+  4. frontend/playwright.config.ts
+  5. backend/README.md
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How is the database initialized with the first superuser?
+Expected: ['backend/app/core/db.py', 'backend/app/initial_data.py']
+
+Semantic:
+  1. backend/app/initial_data.py
+  2. backend/app/crud.py
+  3. backend/app/core/db.py
+  4. backend/tests/crud/test_user.py
+  5. backend/app/api/routes/users.py
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/api/routes/users.py
+  2. backend/app/core/db.py
+  3. compose.yml
+  4. backend/app/core/config.py
+  5. backend/tests/api/routes/test_users.py
+  Missing: ['backend/app/initial_data.py']
+----------------------------------------------------------------------
+
+Question: Where are the User and Item database models defined?
+Expected: ['backend/app/models.py']
+
+Semantic:
+  1. backend/app/models.py
+  2. backend/app/crud.py
+  3. backend/app/core/db.py
+  4. backend/app/initial_data.py
+  5. backend/tests/utils/item.py
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/crud.py
+  2. backend/app/api/routes/users.py
+  3. backend/app/api/routes/items.py
+  4. backend/app/core/db.py
+  5. backend/app/models.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How are items listed, created, updated, and deleted?
+Expected: ['backend/app/api/routes/items.py']
+
+Semantic:
+  1. backend/app/api/routes/items.py
+  2. backend/app/crud.py
+  3. backend/app/models.py
+  4. frontend/src/client/index.ts
+  5. backend/app/initial_data.py
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/crud.py
+  2. backend/app/api/routes/items.py
+  3. backend/app/models.py
+  4. backend/app/api/routes/users.py
+  5. backend/app/alembic/versions/fe56fa70289e_add_created_at_to_user_and_item.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How does the frontend store the access token and manage login and logout?
+Expected: ['frontend/src/hooks/useAuth.ts']
+
+Semantic:
+  1. frontend/src/hooks/useAuth.ts
+  2. backend/app/api/routes/login.py
+  3. backend/app/api/deps.py
+  4. frontend/src/client/index.ts
+  5. frontend/src/routes/_layout/index.tsx
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/api/routes/login.py
+  2. frontend/src/hooks/useAuth.ts
+  3. backend/app/api/deps.py
+  4. backend/app/core/security.py
+  5. backend/app/utils.py
+  Missing: []
+----------------------------------------------------------------------
+
+Question: How does the frontend validate and submit a password change?
+Expected: ['frontend/src/components/UserSettings/ChangePassword.tsx']
+
+Semantic:
+  1. frontend/src/components/UserSettings/ChangePassword.tsx
+  2. frontend/src/routes/reset-password.tsx
+  3. frontend/src/routes/recover-password.tsx
+  4. backend/app/api/routes/users.py
+  5. frontend/src/components/Admin/AddUser.tsx
+  Missing: []
+
+Expanded hybrid:
+  1. backend/app/api/routes/login.py
+  2. backend/app/api/routes/users.py
+  3. backend/app/utils.py
+  4. frontend/src/routes/reset-password.tsx
+  5. backend/app/core/security.py
+  Missing: ['frontend/src/components/UserSettings/ChangePassword.tsx']
+----------------------------------------------------------------------
+
+Question: Which Docker services run the application locally?
+Expected: ['compose.yml']
+
+Semantic:
+  1. development.md
+  2. .github/workflows/test-docker-compose.yml
+  3. deployment-docker-compose.md
+  4. backend/README.md
+  5. compose.yml
+  Missing: []
+
+Expanded hybrid:
+  1. compose.yml
+  2. development.md
+  3. compose.override.yml
+  4. deployment-docker-compose.md
+  5. backend/README.md
+  Missing: []
+----------------------------------------------------------------------
+
+Questions with different results: 11/16

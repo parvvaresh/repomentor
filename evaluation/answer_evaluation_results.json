@@ -1,0 +1,20 @@
+{
+  "questions": 10,
+  "answerable_questions": 8,
+  "unanswerable_questions": 2,
+  "required_facts": 29,
+  "supported_required_facts": 8,
+  "gold_fact_coverage": 0.27586206896551724,
+  "complete_answers": 0,
+  "complete_answer_rate": 0.0,
+  "answerable_response_rate": 0.75,
+  "unanswerable_abstention_accuracy": 1.0,
+  "faithful_substantive_answers": 3,
+  "faithful_substantive_answer_rate": 0.5,
+  "citation_correct_substantive_answers": 3,
+  "citation_correct_substantive_answer_rate": 0.5,
+  "known_incorrect_claims_present": 2,
+  "known_incorrect_claims_checked": 22,
+  "known_error_trigger_rate": 0.09090909090909091,
+  "mean_expected_source_recall": 0.5625
+}

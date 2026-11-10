@@ -1,0 +1,228 @@
+[
+  {
+    "id": "password_hashing",
+    "question": "How are passwords hashed and verified?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "PasswordHash is configured with Argon2Hasher and BcryptHasher.",
+        "source": "backend/app/core/security.py"
+      },
+      {
+        "fact": "get_password_hash hashes a plaintext password using password_hash.hash.",
+        "source": "backend/app/core/security.py"
+      },
+      {
+        "fact": "verify_password calls password_hash.verify_and_update with the plaintext password and stored hash.",
+        "source": "backend/app/core/security.py"
+      }
+    ],
+    "incorrect_claims": [
+      "Argon2 and bcrypt are both applied to every password.",
+      "get_password_hash uses a dummy hash when a user does not exist."
+    ]
+  },
+  {
+    "id": "change_own_password",
+    "question": "How can a logged-in user change their password?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The password-change endpoint is PATCH /me/password.",
+        "source": "backend/app/api/routes/users.py"
+      },
+      {
+        "fact": "The endpoint verifies the current password against the authenticated user's stored hash.",
+        "source": "backend/app/api/routes/users.py"
+      },
+      {
+        "fact": "It rejects an incorrect current password and a new password identical to the current password.",
+        "source": "backend/app/api/routes/users.py"
+      },
+      {
+        "fact": "It hashes the new password, stores the hash on the user, and commits the database session.",
+        "source": "backend/app/api/routes/users.py"
+      }
+    ],
+    "incorrect_claims": [
+      "The new password is stored as plaintext.",
+      "The current password is not required."
+    ]
+  },
+  {
+    "id": "password_recovery",
+    "question": "How does password recovery and reset work?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The password-recovery route looks up the user by email and generates a password-reset token.",
+        "source": "backend/app/api/routes/login.py"
+      },
+      {
+        "fact": "A password-recovery email containing the reset information is sent to the user.",
+        "source": "backend/app/api/routes/login.py"
+      },
+      {
+        "fact": "Reset tokens are JWTs containing the user's email as the subject and an expiration time.",
+        "source": "backend/app/utils.py"
+      },
+      {
+        "fact": "The reset route verifies the token, finds the user, hashes the new password, and commits the change.",
+        "source": "backend/app/api/routes/login.py"
+      }
+    ],
+    "incorrect_claims": [
+      "The reset token contains the user's plaintext password.",
+      "The new password is stored without hashing."
+    ]
+  },
+  {
+    "id": "authenticated_user",
+    "question": "How is the current authenticated user resolved from an access token?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The bearer token is obtained through OAuth2PasswordBearer.",
+        "source": "backend/app/api/deps.py"
+      },
+      {
+        "fact": "The token is decoded using the configured secret key and JWT algorithm.",
+        "source": "backend/app/api/deps.py"
+      },
+      {
+        "fact": "The decoded token subject is used to retrieve the user from the database.",
+        "source": "backend/app/api/deps.py"
+      },
+      {
+        "fact": "Invalid tokens or missing users cause an HTTP error instead of authenticating the request.",
+        "source": "backend/app/api/deps.py"
+      }
+    ],
+    "incorrect_claims": [
+      "The access token stores the user's plaintext password.",
+      "The token is trusted without being decoded or validated."
+    ]
+  },
+  {
+    "id": "fastapi_configuration",
+    "question": "How is the FastAPI application configured?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The application creates a FastAPI instance using values from the application settings.",
+        "source": "backend/app/main.py"
+      },
+      {
+        "fact": "CORS middleware is added using the configured allowed origins.",
+        "source": "backend/app/main.py"
+      },
+      {
+        "fact": "The main API router is included under the configured API version prefix.",
+        "source": "backend/app/main.py"
+      }
+    ],
+    "incorrect_claims": [
+      "The application is implemented with Django.",
+      "All API routes are declared directly inside backend/app/main.py."
+    ]
+  },
+  {
+    "id": "first_superuser",
+    "question": "How is the database initialized with the first superuser?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The initialization entry point opens a database session and calls init_db.",
+        "source": "backend/app/initial_data.py"
+      },
+      {
+        "fact": "init_db checks whether the configured first-superuser email already exists.",
+        "source": "backend/app/core/db.py"
+      },
+      {
+        "fact": "If the user does not exist, it creates a superuser using the configured email and password.",
+        "source": "backend/app/core/db.py"
+      }
+    ],
+    "incorrect_claims": [
+      "A new first superuser is created every time initialization runs.",
+      "The superuser password is hard-coded directly in initial_data.py."
+    ]
+  },
+  {
+    "id": "frontend_authentication",
+    "question": "How does the frontend store the access token and manage login and logout?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The frontend login function requests an access token from the login service.",
+        "source": "frontend/src/hooks/useAuth.ts"
+      },
+      {
+        "fact": "The returned access token is stored in localStorage.",
+        "source": "frontend/src/hooks/useAuth.ts"
+      },
+      {
+        "fact": "Logging out removes the access token from localStorage.",
+        "source": "frontend/src/hooks/useAuth.ts"
+      },
+      {
+        "fact": "Logout clears cached query data and navigates the user to the login page.",
+        "source": "frontend/src/hooks/useAuth.ts"
+      }
+    ],
+    "incorrect_claims": [
+      "The frontend stores the user's plaintext password in localStorage.",
+      "Logging out leaves the access token in localStorage."
+    ]
+  },
+  {
+    "id": "docker_services",
+    "question": "Which Docker services run the application locally?",
+    "answerable": true,
+    "required_facts": [
+      {
+        "fact": "The Compose configuration defines a PostgreSQL database service.",
+        "source": "compose.yml"
+      },
+      {
+        "fact": "It defines a prestart service for initialization tasks.",
+        "source": "compose.yml"
+      },
+      {
+        "fact": "It defines backend and frontend application services.",
+        "source": "compose.yml"
+      },
+      {
+        "fact": "It includes Adminer for database administration.",
+        "source": "compose.yml"
+      }
+    ],
+    "incorrect_claims": [
+      "The local database service uses MongoDB.",
+      "The application runs without backend or frontend services."
+    ]
+  },
+  {
+    "id": "payment_processing",
+    "question": "How are customer payments processed?",
+    "answerable": false,
+    "required_facts": [],
+    "incorrect_claims": [
+      "Payments are processed using Stripe.",
+      "Payments are processed using PayPal.",
+      "The repository implements a payment-processing workflow."
+    ]
+  },
+  {
+    "id": "api_rate_limiting",
+    "question": "How are API requests rate-limited?",
+    "answerable": false,
+    "required_facts": [],
+    "incorrect_claims": [
+      "The application uses Redis for rate limiting.",
+      "The application limits every user to a specific number of requests.",
+      "The repository implements API rate-limiting middleware."
+    ]
+  }
+]
