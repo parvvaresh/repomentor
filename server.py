@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import rag_answer
+from agents import DEFAULT_AGENT, AgentContext, get_agent, list_agents
 from chunk_dataset import chunk_dataset
 from create_embeddings import create_embeddings
 from ingest_repository import ingest_repository
@@ -41,6 +42,7 @@ EMBEDDINGS_FILE = "embeddings.npy"
 
 MAX_TITLE_LENGTH = 60
 MAX_TOP_K = 20
+HISTORY_LIMIT = 20
 
 PROJECT_PATH_PATTERN = re.compile(r"^[\w.-]+(?:/[\w.-]+)+$")
 
@@ -414,6 +416,7 @@ class QuestionCreate(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     top_k: int = Field(default=rag_answer.TOP_K, ge=1, le=MAX_TOP_K)
     retrieval_only: bool = False
+    agent: str = Field(default=DEFAULT_AGENT, max_length=50)
 
 
 @asynccontextmanager
@@ -449,6 +452,8 @@ def get_status() -> dict:
         "gitlab_base_url": rag_answer.GITLAB_BASE_URL,
         "default_top_k": rag_answer.TOP_K,
         "max_top_k": MAX_TOP_K,
+        "agents": [agent.describe() for agent in list_agents()],
+        "default_agent": DEFAULT_AGENT,
     }
 
 
@@ -653,37 +658,51 @@ def save_message(
     return message_to_dict(row)
 
 
-def format_answer_text(result: dict) -> str:
-    """Plain-text version of an answer, stored next to the structured data."""
+def load_history(chat_id: int) -> list[dict]:
+    """Recent successful turns of a chat, oldest first, for agents."""
 
-    sources = result["sources"]
+    with database() as connection:
+        rows = connection.execute(
+            "SELECT * FROM messages WHERE chat_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (chat_id, HISTORY_LIMIT),
+        ).fetchall()
 
-    if result["retrieval_only"]:
-        return "\n".join(source["citation"] for source in sources)
+    history = []
 
-    if not result["facts"]:
-        return (
-            "I couldn't find enough evidence in the "
-            "retrieved repository sources."
-        )
+    for row in reversed(rows):
+        payload = json.loads(row["payload"]) if row["payload"] else {}
 
-    return "\n".join(
-        f"- {fact['text']} {sources[fact['source']]['citation']}"
-        for fact in result["facts"]
-    )
+        if "error" in payload:
+            continue
+
+        history.append({
+            "role": row["role"],
+            "content": row["content"],
+            # Messages saved before agents existed came from the mentor
+            "agent": payload.get("agent", DEFAULT_AGENT),
+        })
+
+    return history
 
 
 @app.post("/api/chats/{chat_id}/messages")
 def ask_question(chat_id: int, body: QuestionCreate) -> dict:
     """
-    Answer a question in a chat. The question and the answer (or the
-    error that prevented one) are both kept in the chat history.
+    Answer a question in a chat with the chosen agent. The question and
+    the answer (or the error that prevented one) are both kept in the
+    chat history.
     """
 
     question = body.question.strip()
 
     if not question:
         raise HTTPException(422, "The question is empty.")
+
+    agent = get_agent(body.agent)
+
+    if agent is None:
+        raise HTTPException(422, f"Unknown agent '{body.agent}'.")
 
     with database() as connection:
         chat = get_chat_row(connection, chat_id)
@@ -714,26 +733,33 @@ def ask_question(chat_id: int, body: QuestionCreate) -> dict:
                     (title, chat_id),
                 )
 
+    history = load_history(chat_id)
+
     user_message = save_message(
         chat_id,
         "user",
         question,
-        {"top_k": body.top_k, "retrieval_only": body.retrieval_only},
+        {
+            "top_k": body.top_k,
+            "retrieval_only": body.retrieval_only,
+            "agent": agent.id,
+        },
     )
 
     try:
-        index = get_index(repo)
-        result = rag_answer.generate_answer(
-            question,
-            index,
-            body.top_k,
-            body.retrieval_only,
+        context = AgentContext(
+            index=get_index(repo),
+            project_path=repo["project_path"],
+            top_k=body.top_k,
+            retrieval_only=body.retrieval_only,
             retrieve_lock=model_lock,
+            history=history,
         )
+        result = {**agent.run(question, context), "agent": agent.id}
         assistant_message = save_message(
             chat_id,
             "assistant",
-            format_answer_text(result),
+            agent.format_text(result),
             result,
         )
 
@@ -747,7 +773,7 @@ def ask_question(chat_id: int, body: QuestionCreate) -> dict:
             chat_id,
             "assistant",
             detail,
-            {"error": detail},
+            {"error": detail, "agent": agent.id},
         )
 
     return {"messages": [user_message, assistant_message]}

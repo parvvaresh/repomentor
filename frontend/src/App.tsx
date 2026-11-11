@@ -14,6 +14,12 @@ const REPO_KEY = "repomentor.repo";
 const CHAT_KEY = "repomentor.chat";
 const OPTIONS_KEY = "repomentor.options";
 
+const DEFAULT_OPTIONS: QuestionOptions = {
+  top_k: 5,
+  retrieval_only: false,
+  agent: "mentor",
+};
+
 function readStorage<T>(key: string, fallback: T): T {
   try {
     const value = localStorage.getItem(key);
@@ -53,12 +59,11 @@ export default function App() {
   const [loadingChat, setLoadingChat] = useState(false);
   const [pending, setPending] = useState<PendingQuestion | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [options, setOptions] = useState<QuestionOptions>(() =>
-    readStorage<QuestionOptions>(OPTIONS_KEY, {
-      top_k: 5,
-      retrieval_only: false,
-    }),
-  );
+  // Options saved by older versions lack newer fields such as `agent`
+  const [options, setOptions] = useState<QuestionOptions>(() => ({
+    ...DEFAULT_OPTIONS,
+    ...readStorage<Partial<QuestionOptions>>(OPTIONS_KEY, {}),
+  }));
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // The chat the user is looking at, readable from async callbacks
@@ -194,6 +199,12 @@ export default function App() {
   }, [activeChatId, showError]);
 
   useEffect(() => writeStorage(OPTIONS_KEY, options), [options]);
+
+  // Fall back to the default agent if the saved one no longer exists
+  useEffect(() => {
+    if (!status || status.agents.some((a) => a.id === options.agent)) return;
+    setOptions((current) => ({ ...current, agent: status.default_agent }));
+  }, [status, options.agent]);
 
   const selectRepo = (repoId: number) => {
     if (repoId === selectedRepoId) return;

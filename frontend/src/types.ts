@@ -38,27 +38,52 @@ export interface Fact {
   source: number;
 }
 
+/** Result of the mentor agent. Older messages have no `agent` field. */
 export interface AnswerResult {
+  agent?: "mentor";
   related_identifiers: string[];
   facts: Fact[];
   sources: Source[];
   retrieval_only: boolean;
 }
 
+/** Result of the coder agent: Markdown that cites sources as [n]. */
+export interface CoderResult {
+  agent: "coder";
+  answer: string;
+  sources: Source[];
+  /** Positions in `sources` the answer refers to. */
+  cited_sources: number[];
+  related_identifiers: string[];
+  retrieval_only: boolean;
+  model: string | null;
+}
+
+/** Result of an agent the frontend has no dedicated view for. */
+export interface GenericResult {
+  agent: string;
+  answer?: string;
+  sources?: Source[];
+}
+
+export type AgentResult = AnswerResult | CoderResult | GenericResult;
+
 export interface QuestionOptions {
   top_k: number;
   retrieval_only: boolean;
+  agent: string;
 }
 
 export interface ErrorResult {
   error: string;
+  agent?: string;
 }
 
 export interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
-  result: AnswerResult | ErrorResult | QuestionOptions | null;
+  result: AgentResult | ErrorResult | QuestionOptions | null;
   created_at: string;
 }
 
@@ -71,6 +96,14 @@ export interface Chat {
   messages: Message[];
 }
 
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description: string;
+  examples: string[];
+  working_label: string;
+}
+
 export interface ServerStatus {
   ollama_available: boolean;
   model: string;
@@ -78,4 +111,6 @@ export interface ServerStatus {
   gitlab_base_url: string;
   default_top_k: number;
   max_top_k: number;
+  agents: AgentInfo[];
+  default_agent: string;
 }

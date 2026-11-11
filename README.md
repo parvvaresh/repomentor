@@ -256,6 +256,7 @@ repomentor/
 ├── review_answers.py
 ├── score_answers.py
 ├── server.py                  # FastAPI backend for the web interface
+├── agents/                    # Pluggable chat agents (mentor, coder, …)
 ├── frontend/                  # React chat interface (Vite + TypeScript)
 ├── evaluation/
 │   ├── retrieval_questions.example.json
@@ -347,6 +348,8 @@ GITLAB_BASE_URL=https://gitlab.com
 GITLAB_PROJECT_PATH=your-username/your-project
 # Optional: any chat model pulled into Ollama (default qwen3:1.7b)
 OLLAMA_MODEL=qwen3:1.7b
+# Optional: a separate model for the coder agent (default OLLAMA_MODEL)
+OLLAMA_CODER_MODEL=qwen2.5-coder:7b
 ```
 
 Never commit `.env` or paste its token into logs, screenshots, issues, or documentation.
@@ -504,9 +507,70 @@ What the interface offers:
 - **Repository picker:** add several GitLab projects; each one is indexed in the background and can be re-indexed or removed.
 - **Chat history:** every conversation is saved per repository in SQLite and can be reopened, renamed or deleted.
 - **Cited answers:** each fact has a numbered citation; hovering it highlights the source, and each source opens the exact commit and lines in GitLab or expands to show the code.
+- **Agents:** pick an agent per message from the composer. **Mentor** gives cited, fact-by-fact answers; **Coder** writes or changes code that follows the repository's own patterns and links every source it builds on.
 - **Retrieval options:** choose how many source files to retrieve, or switch to retrieval-only mode to inspect sources without calling Ollama.
 
 In the sidebar, choose **+ Add** and enter a project path such as `group/project` (a pasted GitLab URL also works). The server downloads, chunks and embeds it in the background using the GitLab settings from `.env`. An index already built with the command-line scripts (`data/chunks.jsonl`) appears automatically. Use the refresh button to re-index a repository after it changes.
+
+#### Agents
+
+Each message is handled by an agent from the `agents/` package. The web interface lists every registered agent, and the chat history records which agent answered each message.
+
+| Agent | What it does |
+| --- | --- |
+| `mentor` | The original RepoMentor pipeline: hybrid retrieval, then facts extracted one source at a time with citations attached in Python. |
+| `coder` | Retrieves the most relevant sources, gives them to the model with numbered labels and asks for a plan plus code that reuses the repository's functions and style. It sees the earlier turns of the chat, so follow-ups such as "now add tests" work. |
+
+![Choosing the Coder agent in the composer shows its description and example tasks](docs/screenshots/web-agents.jpg)
+
+![A Coder answer: code blocks with a copy button, followed by the repository sources it was given as context](docs/screenshots/web-coder.jpg)
+
+The answer above was produced by `qwen2.5:1.5b`. A model this small often ignores the requested format and writes code that does not fully fit the repository, so a dedicated code model (see `OLLAMA_CODER_MODEL` below) is recommended for real use.
+
+The coder benefits from a larger code model than the default. Optional settings in `.env`:
+
+```env
+OLLAMA_CODER_MODEL=qwen2.5-coder:7b   # defaults to OLLAMA_MODEL
+OLLAMA_CODER_CONTEXT=16384            # context window passed to Ollama
+```
+
+The coder only proposes code in the chat; it never changes the repository.
+
+**Adding an agent.** Create a module in `agents/` with a subclass of `Agent` and register it in `agents/__init__.py`:
+
+```python
+# agents/reviewer.py
+import rag_answer
+from .base import Agent, AgentContext
+
+
+class ReviewerAgent(Agent):
+    id = "reviewer"                       # stored with messages; never rename
+    name = "Reviewer"
+    description = "Reviews code for bugs and risky patterns."
+    examples = ["Review the authentication flow for security issues."]
+    working_label = "Reviewing code…"
+
+    def run(self, question: str, context: AgentContext) -> dict:
+        indices, identifiers = rag_answer.retrieve(
+            question, context.index, context.top_k,
+        )
+        chunks = [context.index["chunks"][i] for i in indices]
+        answer = rag_answer.call_ollama([...])   # your prompt here
+
+        return {
+            "answer": answer,              # Markdown; [n] cites sources[n-1]
+            "sources": [rag_answer.describe_source(c) for c in chunks],
+        }
+```
+
+```python
+# agents/__init__.py
+from .reviewer import ReviewerAgent
+register(ReviewerAgent())
+```
+
+An agent without a dedicated view in `frontend/src/components/AssistantMessage.tsx` is rendered as Markdown with its sources, so a new agent works in the interface without frontend changes.
 
 ## Configuration and Security
 

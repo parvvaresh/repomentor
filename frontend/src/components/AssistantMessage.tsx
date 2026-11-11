@@ -1,6 +1,13 @@
 import { useState } from "react";
-import type { AnswerResult, Message, Source } from "../types";
+import type {
+  AnswerResult,
+  CoderResult,
+  GenericResult,
+  Message,
+  Source,
+} from "../types";
 import Icon from "./Icon";
+import Markdown from "./Markdown";
 
 export default function AssistantMessage({ message }: { message: Message }) {
   const result = message.result;
@@ -19,7 +26,7 @@ export default function AssistantMessage({ message }: { message: Message }) {
     );
   }
 
-  if (!result || !("sources" in result)) {
+  if (!result || !("sources" in result || "answer" in result)) {
     return (
       <div className="message assistant-message">
         <p className="answer-text" dir="auto">
@@ -29,22 +36,159 @@ export default function AssistantMessage({ message }: { message: Message }) {
     );
   }
 
-  return <Answer message={message} result={result} />;
+  // Pick the view for the agent that produced the answer. Messages saved
+  // before agents existed have no `agent` and come from the mentor.
+  const agent = "agent" in result ? result.agent : "mentor";
+
+  if (agent === "mentor") {
+    return <Answer message={message} result={result as AnswerResult} />;
+  }
+
+  if (agent === "coder") {
+    return <CoderAnswer message={message} result={result as CoderResult} />;
+  }
+
+  return <GenericAnswer message={message} result={result as GenericResult} />;
 }
 
-function Answer({ message, result }: { message: Message; result: AnswerResult }) {
+function CoderAnswer({
+  message,
+  result,
+}: {
+  message: Message;
+  result: CoderResult;
+}) {
   const [highlighted, setHighlighted] = useState<number | null>(null);
+
+  return (
+    <div className="message assistant-message">
+      {result.retrieval_only ? (
+        <p className="answer-intro muted">
+          Retrieved {result.sources.length} source
+          {result.sources.length === 1 ? "" : "s"} the coder would build on,
+          without calling the language model.
+        </p>
+      ) : (
+        <Markdown
+          text={result.answer}
+          sources={result.sources}
+          onHighlight={setHighlighted}
+        />
+      )}
+
+      <SourceList
+        sources={result.sources}
+        highlighted={highlighted}
+        label={result.retrieval_only ? "Sources" : "Context"}
+      />
+
+      <AnswerFooter
+        text={message.content}
+        identifiers={result.related_identifiers}
+        note={result.model ? `Written by ${result.model}` : null}
+      />
+    </div>
+  );
+}
+
+/** Fallback for agents without a dedicated view: Markdown plus sources. */
+function GenericAnswer({
+  message,
+  result,
+}: {
+  message: Message;
+  result: GenericResult;
+}) {
+  const [highlighted, setHighlighted] = useState<number | null>(null);
+  const sources = result.sources ?? [];
+
+  return (
+    <div className="message assistant-message">
+      <Markdown
+        text={result.answer ?? message.content}
+        sources={sources}
+        onHighlight={setHighlighted}
+      />
+      <SourceList sources={sources} highlighted={highlighted} />
+      <AnswerFooter text={message.content} identifiers={[]} />
+    </div>
+  );
+}
+
+function SourceList({
+  sources,
+  highlighted,
+  label = "Sources",
+}: {
+  sources: Source[];
+  highlighted: number | null;
+  label?: string;
+}) {
+  if (sources.length === 0) return null;
+
+  return (
+    <div className="sources">
+      <div className="sources-label">{label}</div>
+      {sources.map((source, position) => (
+        <SourceCard
+          key={`${source.chunk_id ?? source.file_path}-${position}`}
+          source={source}
+          number={position + 1}
+          highlighted={highlighted === position}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AnswerFooter({
+  text,
+  identifiers,
+  note = null,
+}: {
+  text: string;
+  identifiers: string[];
+  note?: string | null;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard access can be denied; nothing else to do
     }
   };
+
+  return (
+    <div className="answer-footer">
+      {identifiers.length > 0 && (
+        <details className="identifiers">
+          <summary>
+            {identifiers.length} related identifier
+            {identifiers.length === 1 ? "" : "s"}
+          </summary>
+          <div className="identifier-list">
+            {identifiers.map((identifier) => (
+              <code key={identifier}>{identifier}</code>
+            ))}
+          </div>
+        </details>
+      )}
+      {note && <span className="answer-note muted">{note}</span>}
+      <span className="spacer" />
+      <button className="ghost-button small" onClick={copy}>
+        <Icon name={copied ? "check" : "copy"} />
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function Answer({ message, result }: { message: Message; result: AnswerResult }) {
+  const [highlighted, setHighlighted] = useState<number | null>(null);
 
   return (
     <div className="message assistant-message">
@@ -85,40 +229,12 @@ function Answer({ message, result }: { message: Message; result: AnswerResult })
         </p>
       )}
 
-      {result.sources.length > 0 && (
-        <div className="sources">
-          <div className="sources-label">Sources</div>
-          {result.sources.map((source, position) => (
-            <SourceCard
-              key={`${source.chunk_id ?? source.file_path}-${position}`}
-              source={source}
-              number={position + 1}
-              highlighted={highlighted === position}
-            />
-          ))}
-        </div>
-      )}
+      <SourceList sources={result.sources} highlighted={highlighted} />
 
-      <div className="answer-footer">
-        {result.related_identifiers.length > 0 && (
-          <details className="identifiers">
-            <summary>
-              {result.related_identifiers.length} related identifier
-              {result.related_identifiers.length === 1 ? "" : "s"}
-            </summary>
-            <div className="identifier-list">
-              {result.related_identifiers.map((identifier) => (
-                <code key={identifier}>{identifier}</code>
-              ))}
-            </div>
-          </details>
-        )}
-        <span className="spacer" />
-        <button className="ghost-button small" onClick={copy}>
-          <Icon name={copied ? "check" : "copy"} />
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <AnswerFooter
+        text={message.content}
+        identifiers={result.related_identifiers}
+      />
     </div>
   );
 }

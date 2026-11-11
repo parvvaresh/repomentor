@@ -56,18 +56,28 @@ MODEL_CITATION_PATTERN = re.compile(
 def call_ollama(
     messages: list[dict],
     temperature: float = 0,
+    context_length: int | None = None,
+    timeout: int = 180,
+    model: str | None = None,
 ) -> str:
+    options: dict = {"temperature": temperature}
+
+    # Ollama's default context window is small; prompts that include
+    # several whole sources need a larger one
+    if context_length is not None:
+        options["num_ctx"] = context_length
+
     try:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL_NAME,
+                "model": model or MODEL_NAME,
                 "messages": messages,
                 "stream": False,
                 "think": False,
-                "options": {"temperature": temperature},
+                "options": options,
             },
-            timeout=180,
+            timeout=timeout,
         )
     except requests.ConnectionError as error:
         raise RuntimeError(
