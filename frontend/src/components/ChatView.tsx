@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { PendingQuestion } from "../App";
 import type {
+  AgentInfo,
   Message,
   QuestionOptions,
   Repo,
@@ -27,15 +28,16 @@ interface Props {
   onDismissError: () => void;
 }
 
-const EXAMPLE_QUESTIONS = [
-  "How does user authentication work?",
-  "How are user passwords handled?",
-  "Where are the database models defined?",
-  "How is the application deployed?",
-];
+function findAgent(
+  status: ServerStatus | null,
+  agentId: string | undefined,
+): AgentInfo | null {
+  return status?.agents.find((agent) => agent.id === agentId) ?? null;
+}
 
 export default function ChatView(props: Props) {
-  const { repo, messages, pending, loading } = props;
+  const { repo, messages, pending, loading, status } = props;
+  const agent = findAgent(status, props.options.agent);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep the newest message in view
@@ -82,6 +84,7 @@ export default function ChatView(props: Props) {
           {empty && (
             <EmptyState
               repo={repo}
+              agent={agent}
               reposLoaded={props.reposLoaded}
               onAsk={props.onAsk}
               canAsk={ready && !props.busyElsewhere}
@@ -91,7 +94,11 @@ export default function ChatView(props: Props) {
           {!loading &&
             messages.map((message) =>
               message.role === "user" ? (
-                <UserMessage key={message.id} message={message} />
+                <UserMessage
+                  key={message.id}
+                  message={message}
+                  status={status}
+                />
               ) : (
                 <AssistantMessage key={message.id} message={message} />
               ),
@@ -102,8 +109,12 @@ export default function ChatView(props: Props) {
               <UserBubble
                 text={pending.question}
                 options={pending.options}
+                agent={findAgent(status, pending.options.agent)}
               />
-              <PendingAnswer pending={pending} />
+              <PendingAnswer
+                pending={pending}
+                agent={findAgent(status, pending.options.agent)}
+              />
             </>
           )}
         </div>
@@ -125,7 +136,7 @@ export default function ChatView(props: Props) {
 
       <Composer
         disabled={!ready || pending !== null || props.busyElsewhere}
-        placeholder={composerPlaceholder(repo, props.busyElsewhere)}
+        placeholder={composerPlaceholder(repo, agent, props.busyElsewhere)}
         status={props.status}
         options={props.options}
         onOptionsChange={props.onOptionsChange}
@@ -135,21 +146,30 @@ export default function ChatView(props: Props) {
   );
 }
 
-function composerPlaceholder(repo: Repo | null, busyElsewhere: boolean) {
+function composerPlaceholder(
+  repo: Repo | null,
+  agent: AgentInfo | null,
+  busyElsewhere: boolean,
+) {
   if (!repo) return "Add a repository to start asking questions";
   if (repo.status === "indexing") return "Waiting for the repository to finish indexing…";
   if (repo.status === "error") return "Re-index this repository to ask questions";
   if (busyElsewhere) return "Waiting for the answer in another chat…";
+  if (agent && agent.id !== "mentor") {
+    return `Ask ${agent.name} to work on ${repo.project_path}…`;
+  }
   return `Ask about ${repo.project_path}…`;
 }
 
 function EmptyState({
   repo,
+  agent,
   reposLoaded,
   canAsk,
   onAsk,
 }: {
   repo: Repo | null;
+  agent: AgentInfo | null;
   reposLoaded: boolean;
   canAsk: boolean;
   onAsk: (question: string) => void;
@@ -171,13 +191,17 @@ function EmptyState({
 
   return (
     <div className="empty-state">
-      <h1>Ask about {repo.project_path}</h1>
+      <h1>
+        {agent && agent.id !== "mentor"
+          ? `${agent.name} · ${repo.project_path}`
+          : `Ask about ${repo.project_path}`}
+      </h1>
       <p className="muted">
-        Answers are built only from retrieved source code, and every fact
-        links to the file and lines it came from.
+        {agent?.description ??
+          "Answers are built only from retrieved source code."}
       </p>
       <div className="examples">
-        {EXAMPLE_QUESTIONS.map((question) => (
+        {(agent?.examples ?? []).map((question) => (
           <button
             key={question}
             className="example"
@@ -192,33 +216,57 @@ function EmptyState({
   );
 }
 
-function UserMessage({ message }: { message: Message }) {
+function UserMessage({
+  message,
+  status,
+}: {
+  message: Message;
+  status: ServerStatus | null;
+}) {
   const options =
     message.result && "top_k" in message.result ? message.result : null;
 
-  return <UserBubble text={message.content} options={options} />;
+  return (
+    <UserBubble
+      text={message.content}
+      options={options}
+      agent={findAgent(status, options?.agent)}
+    />
+  );
 }
 
 function UserBubble({
   text,
   options,
+  agent,
 }: {
   text: string;
   options: QuestionOptions | null;
+  agent: AgentInfo | null;
 }) {
+  const tags: string[] = [];
+  if (agent && agent.id !== "mentor") tags.push(agent.name);
+  if (options?.retrieval_only) tags.push(`Retrieval only · top ${options.top_k}`);
+
   return (
     <div className="message user-message">
       <div className="user-bubble" dir="auto">
         {text}
       </div>
-      {options?.retrieval_only && (
-        <span className="message-tag">Retrieval only · top {options.top_k}</span>
+      {tags.length > 0 && (
+        <span className="message-tag">{tags.join(" · ")}</span>
       )}
     </div>
   );
 }
 
-function PendingAnswer({ pending }: { pending: PendingQuestion }) {
+function PendingAnswer({
+  pending,
+  agent,
+}: {
+  pending: PendingQuestion;
+  agent: AgentInfo | null;
+}) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -233,7 +281,7 @@ function PendingAnswer({ pending }: { pending: PendingQuestion }) {
     ? "Retrieving sources…"
     : elapsed < 2
       ? "Retrieving sources…"
-      : "Reading sources and extracting facts…";
+      : (agent?.working_label ?? "Working…");
 
   return (
     <div className="message assistant-message">
@@ -287,6 +335,7 @@ function Composer({
   };
 
   const maxTopK = status?.max_top_k ?? 20;
+  const agents = status?.agents ?? [];
   const ollamaOffline = status !== null && !status.ollama_available;
 
   return (
@@ -303,6 +352,22 @@ function Composer({
           aria-label="Question"
         />
         <div className="composer-bar">
+          {agents.length > 1 && (
+            <div className="agent-picker" role="radiogroup" aria-label="Agent">
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  role="radio"
+                  aria-checked={options.agent === agent.id}
+                  className={options.agent === agent.id ? "is-active" : ""}
+                  title={agent.description}
+                  onClick={() => onOptionsChange({ ...options, agent: agent.id })}
+                >
+                  {agent.name}
+                </button>
+              ))}
+            </div>
+          )}
           <label className="option" title="Number of source files to retrieve">
             <span>Sources</span>
             <input
