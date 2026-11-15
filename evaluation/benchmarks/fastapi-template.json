@@ -1,0 +1,342 @@
+{
+  "name": "fastapi-template",
+  "description": "Full Stack FastAPI Template (MIT). The first 16 dev questions are the original RepoMentor benchmark.",
+  "repository": {
+    "url": "https://github.com/fastapi/full-stack-fastapi-template.git",
+    "commit": "aabb90126964a164e02aff39e7c385bb0598236d"
+  },
+  "questions": [
+    {
+      "id": "password_hashing",
+      "question": "How are passwords hashed and verified?",
+      "expected_files": [
+        "backend/app/core/security.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "user_creation",
+      "question": "How is a new user created and their password stored?",
+      "expected_files": [
+        "backend/app/crud.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "change_own_password",
+      "question": "How can a logged-in user change their password?",
+      "expected_files": [
+        "backend/app/api/routes/users.py",
+        "backend/app/core/security.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "password_recovery",
+      "question": "How does password recovery and reset work?",
+      "expected_files": [
+        "backend/app/api/routes/login.py",
+        "backend/app/utils.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "login_token",
+      "question": "How does login create an access token?",
+      "expected_files": [
+        "backend/app/api/routes/login.py",
+        "backend/app/core/security.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "current_user",
+      "question": "How is the current authenticated user resolved from a token?",
+      "expected_files": [
+        "backend/app/api/deps.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "api_routers",
+      "question": "Where are the API routers registered?",
+      "expected_files": [
+        "backend/app/api/main.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "app_startup",
+      "question": "How is the FastAPI application configured and started?",
+      "expected_files": [
+        "backend/app/main.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "settings",
+      "question": "Where are application settings and environment variables defined?",
+      "expected_files": [
+        "backend/app/core/config.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "first_superuser",
+      "question": "How is the database initialized with the first superuser?",
+      "expected_files": [
+        "backend/app/core/db.py",
+        "backend/app/initial_data.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "models",
+      "question": "Where are the User and Item database models defined?",
+      "expected_files": [
+        "backend/app/models.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "item_crud",
+      "question": "How are items listed, created, updated, and deleted?",
+      "expected_files": [
+        "backend/app/api/routes/items.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "frontend_auth",
+      "question": "How does the frontend store the access token and manage login and logout?",
+      "expected_files": [
+        "frontend/src/hooks/useAuth.ts"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "frontend_change_password",
+      "question": "How does the frontend validate and submit a password change?",
+      "expected_files": [
+        "frontend/src/components/UserSettings/ChangePassword.tsx"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "docker_services",
+      "question": "Which Docker services run the application locally?",
+      "expected_files": [
+        "compose.yml"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "user_tests",
+      "question": "How are the user API endpoints tested?",
+      "expected_files": [
+        "backend/tests/api/routes/test_users.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "hash_function",
+      "question": "What does `get_password_hash` return and which hasher does it use?",
+      "expected_files": [
+        "backend/app/core/security.py"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "superuser_dependency",
+      "question": "What does `get_current_active_superuser` check?",
+      "expected_files": [
+        "backend/app/api/deps.py"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "reset_token_expiry",
+      "question": "How long is a token from `generate_password_reset_token` valid?",
+      "expected_files": [
+        "backend/app/utils.py",
+        "backend/app/core/config.py"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "is_logged_in",
+      "question": "How does `isLoggedIn` decide whether the user is logged in?",
+      "expected_files": [
+        "frontend/src/hooks/useAuth.ts"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "migrations",
+      "question": "How are database schema migrations managed?",
+      "expected_files": [
+        "backend/app/alembic/env.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "emails",
+      "question": "How are emails such as the new-account email generated and sent?",
+      "expected_files": [
+        "backend/app/utils.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "private_routes",
+      "question": "When are the private API routes enabled?",
+      "expected_files": [
+        "backend/app/api/main.py",
+        "backend/app/api/routes/private.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "health_check",
+      "question": "Is there a health check endpoint and what does it return?",
+      "expected_files": [
+        "backend/app/api/routes/utils.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "backend_image",
+      "question": "How is the backend Docker image built?",
+      "expected_files": [
+        "backend/Dockerfile"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "frontend_route_guard",
+      "question": "How does the frontend keep logged-out users away from the dashboard pages?",
+      "expected_files": [
+        "frontend/src/routes/_layout.tsx"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "admin_page_guard",
+      "question": "How does the frontend restrict the admin page to superusers?",
+      "expected_files": [
+        "frontend/src/routes/_layout/admin.tsx"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "admin_add_user",
+      "question": "How can an admin create a new user from the web interface?",
+      "expected_files": [
+        "frontend/src/components/Admin/AddUser.tsx"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "signup",
+      "question": "How does the signup page create an account?",
+      "expected_files": [
+        "frontend/src/routes/signup.tsx"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "api_client_config",
+      "question": "How is the frontend API client configured with the base URL and the access token?",
+      "expected_files": [
+        "frontend/src/main.tsx"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "delete_own_account",
+      "question": "How does a user delete their own account?",
+      "expected_files": [
+        "backend/app/api/routes/users.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "test_fixtures",
+      "question": "How are backend tests set up with a database session and authentication tokens?",
+      "expected_files": [
+        "backend/tests/conftest.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "reverse_proxy",
+      "question": "Which reverse proxy routes traffic to the services?",
+      "expected_files": [
+        "compose.yml"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "timing_attack",
+      "question": "How does `authenticate` avoid revealing whether an email exists?",
+      "expected_files": [
+        "backend/app/crud.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    },
+    {
+      "id": "user_update_me",
+      "question": "Which fields can a user change through `UserUpdateMe`?",
+      "expected_files": [
+        "backend/app/models.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    },
+    {
+      "id": "secret_key_usage",
+      "question": "Where is `SECRET_KEY` used to sign and verify tokens?",
+      "expected_files": [
+        "backend/app/core/security.py",
+        "backend/app/api/deps.py",
+        "backend/app/utils.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    }
+  ]
+}

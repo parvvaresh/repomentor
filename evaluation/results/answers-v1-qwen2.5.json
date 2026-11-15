@@ -1,0 +1,992 @@
+[
+  {
+    "id": "password_hashing",
+    "question": "How are passwords hashed and verified?",
+    "answerable": true,
+    "answer": "- Passwords are hashed using the Argon2 and bcrypt algorithms. [backend/app/core/security.py:1-36]\n- The `verify_password` function checks if a plain password matches a hashed password. [backend/app/core/security.py:1-36]\n- Passwords are hashed using the `get_password_hash` function. [backend/app/api/routes/users.py:101-160]\n- The hashed password is stored in the `hashed_password` attribute of the `User` model. [backend/app/api/routes/users.py:101-160]\n- Passwords are hashed using Argon2 with a random password for timing attack prevention. [backend/app/crud.py:1-60]\n- Passwords are verified using the `verify_password` function, which compares the provided password against the hashed password stored in the database. [backend/app/crud.py:1-60]",
+    "sources": [
+      {
+        "citation": "[backend/app/core/security.py:1-36]",
+        "content": "from datetime import UTC, datetime, timedelta\nfrom typing import Any\n\nimport jwt\nfrom pwdlib import PasswordHash\nfrom pwdlib.hashers.argon2 import Argon2Hasher\nfrom pwdlib.hashers.bcrypt import BcryptHasher\n\nfrom app.core.config import settings\n\npassword_hash = PasswordHash(\n    (\n        Argon2Hasher(),\n        BcryptHasher(),\n    )\n)\n\n\nALGORITHM = \"HS256\"\n\n\ndef create_access_token(subject: str | Any, expires_delta: timedelta) -> str:\n    expire = datetime.now(UTC) + expires_delta\n    to_encode = {\"exp\": expire, \"sub\": str(subject)}\n    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)\n    return encoded_jwt\n\n\ndef verify_password(\n    plain_password: str, hashed_password: str\n) -> tuple[bool, str | None]:\n    return password_hash.verify_and_update(plain_password, hashed_password)\n\n\ndef get_password_hash(password: str) -> str:\n    return password_hash.hash(password)"
+      },
+      {
+        "citation": "[backend/app/api/routes/users.py:101-160]",
+        "content": "@router.patch(\"/me/password\", response_model=Message)\ndef update_password_me(\n    *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser\n) -> Any:\n    \"\"\"\n    Update own password.\n    \"\"\"\n    verified, _ = verify_password(body.current_password, current_user.hashed_password)\n    if not verified:\n        raise HTTPException(status_code=400, detail=\"Incorrect password\")\n    if body.current_password == body.new_password:\n        raise HTTPException(\n            status_code=400, detail=\"New password cannot be the same as the current one\"\n        )\n    hashed_password = get_password_hash(body.new_password)\n    current_user.hashed_password = hashed_password\n    session.add(current_user)\n    session.commit()\n    return Message(message=\"Password updated successfully\")\n\n\n@router.get(\"/me\", response_model=UserPublic)\ndef read_user_me(current_user: CurrentUser) -> Any:\n    \"\"\"\n    Get current user.\n    \"\"\"\n    return current_user\n\n\n@router.delete(\"/me\", response_model=Message)\ndef delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:\n    \"\"\"\n    Delete own user.\n    \"\"\"\n    if current_user.is_superuser:\n        raise HTTPException(\n            status_code=403, detail=\"Super users are not allowed to delete themselves\"\n        )\n    session.delete(current_user)\n    session.commit()\n    return Message(message=\"User deleted successfully\")\n\n\n@router.post(\"/signup\", response_model=UserPublic)\ndef register_user(session: SessionDep, user_in: UserRegister) -> Any:\n    \"\"\"\n    Create new user without the need to be logged in.\n    \"\"\"\n    user = crud.get_user_by_email(session=session, email=user_in.email)\n    if user:\n        raise HTTPException(\n            status_code=400,\n            detail=\"The user with this email already exists in the system\",\n        )\n    user_create = UserCreate.model_validate(user_in)\n    user = crud.create_user(session=session, user_create=user_create)\n    return user"
+      },
+      {
+        "citation": "[backend/app/crud.py:1-60]",
+        "content": "import uuid\nfrom typing import Any\n\nfrom sqlmodel import Session, select\n\nfrom app.core.security import get_password_hash, verify_password\nfrom app.models import Item, ItemCreate, User, UserCreate, UserUpdate\n\n\ndef create_user(*, session: Session, user_create: UserCreate) -> User:\n    db_obj = User.model_validate(\n        user_create, update={\"hashed_password\": get_password_hash(user_create.password)}\n    )\n    session.add(db_obj)\n    session.commit()\n    session.refresh(db_obj)\n    return db_obj\n\n\ndef update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:\n    user_data = user_in.model_dump(exclude_unset=True)\n    extra_data = {}\n    if \"password\" in user_data:\n        password = user_data[\"password\"]\n        hashed_password = get_password_hash(password)\n        extra_data[\"hashed_password\"] = hashed_password\n    db_user.sqlmodel_update(user_data, update=extra_data)\n    session.add(db_user)\n    session.commit()\n    session.refresh(db_user)\n    return db_user\n\n\ndef get_user_by_email(*, session: Session, email: str) -> User | None:\n    statement = select(User).where(User.email == email)\n    session_user = session.exec(statement).first()\n    return session_user\n\n\n# Dummy hash to use for timing attack prevention when user is not found\n# This is an Argon2 hash of a random password, used to ensure constant-time comparison\nDUMMY_HASH = \"$argon2id$v=19$m=65536,t=3,p=4$MjQyZWE1MzBjYjJlZTI0Yw$YTU4NGM5ZTZmYjE2NzZlZjY0ZWY3ZGRkY2U2OWFjNjk\"\n\n\ndef authenticate(*, session: Session, email: str, password: str) -> User | None:\n    db_user = get_user_by_email(session=session, email=email)\n    if not db_user:\n        # Prevent timing attacks by running password verification even when user doesn't exist\n        # This ensures the response time is similar whether or not the email exists\n        verify_password(password, DUMMY_HASH)\n        return None\n    verified, updated_password_hash = verify_password(password, db_user.hashed_password)\n    if not verified:\n        return None\n    if updated_password_hash:\n        db_user.hashed_password = updated_password_hash\n        session.add(db_user)\n        session.commit()\n        session.refresh(db_user)\n    return db_user"
+      }
+    ],
+    "expected_sources": [
+      "backend/app/core/security.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/users.py",
+      "backend/app/core/security.py",
+      "backend/app/crud.py"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "PasswordHash is configured with Argon2Hasher and BcryptHasher.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "get_password_hash hashes a plaintext password using password_hash.hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "verify_password calls password_hash.verify_and_update with the plaintext password and stored hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "Argon2 and bcrypt are both applied to every password.",
+          "present": null
+        },
+        {
+          "claim": "get_password_hash uses a dummy hash when a user does not exist.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "PasswordHash is configured with Argon2Hasher and BcryptHasher.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "get_password_hash hashes a plaintext password using password_hash.hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "verify_password calls password_hash.verify_and_update with the plaintext password and stored hash.",
+          "expected_source": "backend/app/core/security.py",
+          "present_and_supported": false
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "Argon2 and bcrypt are both applied to every password.",
+          "present": true
+        },
+        {
+          "claim": "get_password_hash uses a dummy hash when a user does not exist.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "change_own_password",
+    "question": "How can a logged-in user change their password?",
+    "answerable": true,
+    "answer": "- A logged-in user can change their password by updating their hashed password in the database. [backend/app/api/routes/users.py:101-160]\n- The user must verify their current password before updating it. [backend/app/api/routes/users.py:101-160]\n- A logged-in user can change their password by updating the `hashed_password` field in the `User` model. [backend/app/crud.py:1-60]\n- The `update_user` function allows for partial updates, including changing the password if the `password` key is present in the `user_in` data. [backend/app/crud.py:1-60]\n- A logged-in user can change their password by sending a PATCH request to the `/users/me/password` endpoint with the current password and new password in the JSON body. [backend/tests/api/routes/test_users.py:251-310]\n- The user must provide the correct current password to update their password successfully. [backend/tests/api/routes/test_users.py:251-310]",
+    "sources": [
+      {
+        "citation": "[backend/app/api/routes/users.py:101-160]",
+        "content": "@router.patch(\"/me/password\", response_model=Message)\ndef update_password_me(\n    *, session: SessionDep, body: UpdatePassword, current_user: CurrentUser\n) -> Any:\n    \"\"\"\n    Update own password.\n    \"\"\"\n    verified, _ = verify_password(body.current_password, current_user.hashed_password)\n    if not verified:\n        raise HTTPException(status_code=400, detail=\"Incorrect password\")\n    if body.current_password == body.new_password:\n        raise HTTPException(\n            status_code=400, detail=\"New password cannot be the same as the current one\"\n        )\n    hashed_password = get_password_hash(body.new_password)\n    current_user.hashed_password = hashed_password\n    session.add(current_user)\n    session.commit()\n    return Message(message=\"Password updated successfully\")\n\n\n@router.get(\"/me\", response_model=UserPublic)\ndef read_user_me(current_user: CurrentUser) -> Any:\n    \"\"\"\n    Get current user.\n    \"\"\"\n    return current_user\n\n\n@router.delete(\"/me\", response_model=Message)\ndef delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:\n    \"\"\"\n    Delete own user.\n    \"\"\"\n    if current_user.is_superuser:\n        raise HTTPException(\n            status_code=403, detail=\"Super users are not allowed to delete themselves\"\n        )\n    session.delete(current_user)\n    session.commit()\n    return Message(message=\"User deleted successfully\")\n\n\n@router.post(\"/signup\", response_model=UserPublic)\ndef register_user(session: SessionDep, user_in: UserRegister) -> Any:\n    \"\"\"\n    Create new user without the need to be logged in.\n    \"\"\"\n    user = crud.get_user_by_email(session=session, email=user_in.email)\n    if user:\n        raise HTTPException(\n            status_code=400,\n            detail=\"The user with this email already exists in the system\",\n        )\n    user_create = UserCreate.model_validate(user_in)\n    user = crud.create_user(session=session, user_create=user_create)\n    return user"
+      },
+      {
+        "citation": "[backend/app/crud.py:1-60]",
+        "content": "import uuid\nfrom typing import Any\n\nfrom sqlmodel import Session, select\n\nfrom app.core.security import get_password_hash, verify_password\nfrom app.models import Item, ItemCreate, User, UserCreate, UserUpdate\n\n\ndef create_user(*, session: Session, user_create: UserCreate) -> User:\n    db_obj = User.model_validate(\n        user_create, update={\"hashed_password\": get_password_hash(user_create.password)}\n    )\n    session.add(db_obj)\n    session.commit()\n    session.refresh(db_obj)\n    return db_obj\n\n\ndef update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:\n    user_data = user_in.model_dump(exclude_unset=True)\n    extra_data = {}\n    if \"password\" in user_data:\n        password = user_data[\"password\"]\n        hashed_password = get_password_hash(password)\n        extra_data[\"hashed_password\"] = hashed_password\n    db_user.sqlmodel_update(user_data, update=extra_data)\n    session.add(db_user)\n    session.commit()\n    session.refresh(db_user)\n    return db_user\n\n\ndef get_user_by_email(*, session: Session, email: str) -> User | None:\n    statement = select(User).where(User.email == email)\n    session_user = session.exec(statement).first()\n    return session_user\n\n\n# Dummy hash to use for timing attack prevention when user is not found\n# This is an Argon2 hash of a random password, used to ensure constant-time comparison\nDUMMY_HASH = \"$argon2id$v=19$m=65536,t=3,p=4$MjQyZWE1MzBjYjJlZTI0Yw$YTU4NGM5ZTZmYjE2NzZlZjY0ZWY3ZGRkY2U2OWFjNjk\"\n\n\ndef authenticate(*, session: Session, email: str, password: str) -> User | None:\n    db_user = get_user_by_email(session=session, email=email)\n    if not db_user:\n        # Prevent timing attacks by running password verification even when user doesn't exist\n        # This ensures the response time is similar whether or not the email exists\n        verify_password(password, DUMMY_HASH)\n        return None\n    verified, updated_password_hash = verify_password(password, db_user.hashed_password)\n    if not verified:\n        return None\n    if updated_password_hash:\n        db_user.hashed_password = updated_password_hash\n        session.add(db_user)\n        session.commit()\n        session.refresh(db_user)\n    return db_user"
+      },
+      {
+        "citation": "[backend/tests/api/routes/test_users.py:251-310]",
+        "content": "\"new_password\": settings.FIRST_SUPERUSER_PASSWORD,\n    }\n    r = client.patch(\n        f\"{settings.API_V1_STR}/users/me/password\",\n        headers=superuser_token_headers,\n        json=old_data,\n    )\n    db.refresh(user_db)\n\n    assert r.status_code == 200\n    verified, _ = verify_password(\n        settings.FIRST_SUPERUSER_PASSWORD, user_db.hashed_password\n    )\n    assert verified\n\n\ndef test_update_password_me_incorrect_password(\n    client: TestClient, superuser_token_headers: dict[str, str]\n) -> None:\n    new_password = random_lower_string()\n    data = {\"current_password\": new_password, \"new_password\": new_password}\n    r = client.patch(\n        f\"{settings.API_V1_STR}/users/me/password\",\n        headers=superuser_token_headers,\n        json=data,\n    )\n    assert r.status_code == 400\n    updated_user = r.json()\n    assert updated_user[\"detail\"] == \"Incorrect password\"\n\n\ndef test_update_user_me_email_exists(\n    client: TestClient, normal_user_token_headers: dict[str, str], db: Session\n) -> None:\n    username = random_email()\n    password = random_lower_string()\n    user_in = UserCreate(email=username, password=password)\n    user = crud.create_user(session=db, user_create=user_in)\n\n    data = {\"email\": user.email}\n    r = client.patch(\n        f\"{settings.API_V1_STR}/users/me\",\n        headers=normal_user_token_headers,\n        json=data,\n    )\n    assert r.status_code == 409\n    assert r.json()[\"detail\"] == \"User with this email already exists\"\n\n\ndef test_update_password_me_same_password_error(\n    client: TestClient, superuser_token_headers: dict[str, str]\n) -> None:\n    data = {\n        \"current_password\": settings.FIRST_SUPERUSER_PASSWORD,\n        \"new_password\": settings.FIRST_SUPERUSER_PASSWORD,\n    }\n    r = client.patch(\n        f\"{settings.API_V1_STR}/users/me/password\",\n        headers=superuser_token_headers,\n        json=data,"
+      }
+    ],
+    "expected_sources": [
+      "backend/app/api/routes/users.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/users.py",
+      "backend/app/crud.py",
+      "backend/tests/api/routes/test_users.py"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The password-change endpoint is PATCH /me/password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The endpoint verifies the current password against the authenticated user's stored hash.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "It rejects an incorrect current password and a new password identical to the current password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "It hashes the new password, stores the hash on the user, and commits the database session.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The new password is stored as plaintext.",
+          "present": null
+        },
+        {
+          "claim": "The current password is not required.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The password-change endpoint is PATCH /me/password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "The endpoint verifies the current password against the authenticated user's stored hash.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It rejects an incorrect current password and a new password identical to the current password.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It hashes the new password, stores the hash on the user, and commits the database session.",
+          "expected_source": "backend/app/api/routes/users.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The new password is stored as plaintext.",
+          "present": false
+        },
+        {
+          "claim": "The current password is not required.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "password_recovery",
+    "question": "How does password recovery and reset work?",
+    "answerable": true,
+    "answer": "- Password recovery and reset involve generating a token that can be used to reset the password. [backend/app/api/routes/login.py:101-123]\n- The token is sent to the user's email address. [backend/app/api/routes/login.py:101-123]\n- Password recovery and reset typically involve sending an email with a link that contains a token. [backend/app/utils.py:101-125]\n- The token is used to verify the user's identity and reset their password. [backend/app/utils.py:101-125]\n- Password recovery and reset work by providing a link that, when clicked, allows the user to reset their password. [packages/react-email/emails/reset_password.tsx:1-60]\n- The link is valid for a specified number of hours, after which it will expire. [packages/react-email/emails/reset_password.tsx:1-60]",
+    "sources": [
+      {
+        "citation": "[backend/app/api/routes/login.py:101-123]",
+        "content": "\"/password-recovery-html-content/{email}\",\n    dependencies=[Depends(get_current_active_superuser)],\n    response_class=HTMLResponse,\n)\ndef recover_password_html_content(email: str, session: SessionDep) -> Any:\n    \"\"\"\n    HTML Content for Password Recovery\n    \"\"\"\n    user = crud.get_user_by_email(session=session, email=email)\n\n    if not user:\n        raise HTTPException(\n            status_code=404,\n            detail=\"The user with this username does not exist in the system.\",\n        )\n    password_reset_token = generate_password_reset_token(email=email)\n    email_data = generate_reset_password_email(\n        email_to=user.email, email=email, token=password_reset_token\n    )\n\n    return HTMLResponse(\n        content=email_data.html_content, headers={\"subject:\": email_data.subject}\n    )"
+      },
+      {
+        "citation": "[backend/app/utils.py:101-125]",
+        "content": ")\n    return EmailData(html_content=html_content, subject=subject)\n\n\ndef generate_password_reset_token(email: str) -> str:\n    delta = timedelta(hours=settings.EMAIL_RESET_TOKEN_EXPIRE_HOURS)\n    now = datetime.now(UTC)\n    expires = now + delta\n    exp = expires.timestamp()\n    encoded_jwt = jwt.encode(\n        {\"exp\": exp, \"nbf\": now, \"sub\": email},\n        settings.SECRET_KEY,\n        algorithm=security.ALGORITHM,\n    )\n    return encoded_jwt\n\n\ndef verify_password_reset_token(token: str) -> str | None:\n    try:\n        decoded_token = jwt.decode(\n            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]\n        )\n        return str(decoded_token[\"sub\"])\n    except InvalidTokenError:\n        return None"
+      },
+      {
+        "citation": "[packages/react-email/emails/reset_password.tsx:1-60]",
+        "content": "import { Text } from \"@react-email/components\"\nimport { LinkButton } from \"../ui/Button\"\nimport { Heading } from \"../ui/Heading\"\nimport { Layout } from \"../ui/Layout\"\nimport { Link } from \"../ui/Link\"\n\ntype ResetPasswordProps = {\n  project_name: string\n  username: string\n  link: string\n  valid_hours: string\n}\n\nexport default function ResetPassword({\n  project_name = \"{{ project_name }}\",\n  username = \"{{ username }}\",\n  link = \"{{ link }}\",\n  valid_hours = \"{{ valid_hours }}\",\n}: ResetPasswordProps) {\n  return (\n    <Layout\n      title={`${project_name} - Password recovery`}\n      preview={`Reset your ${project_name} password`}\n      project_name={project_name}\n    >\n      <Heading>Reset your password</Heading>\n      <Text style={bodyTextStyle}>Hi {username},</Text>\n      <Text style={bodyTextStyle}>\n        We've received a request to reset the password for your {project_name}{\" \"}\n        account. Choose a new one by clicking the button below:\n      </Text>\n      <LinkButton href={link}>Reset password</LinkButton>\n      <Text style={supportingTextStyle}>\n        Or copy and paste this link into your browser:\n        <br />\n        <Link href={link}>{link}</Link>\n      </Text>\n      <Text style={supportingTextStyle}>\n        This link will expire in {valid_hours} hours.\n      </Text>\n      <Text style={supportingTextStyle}>\n        If you didn't request a password recovery, you can safely ignore this\n        email.\n      </Text>\n    </Layout>\n  )\n}\n\nconst bodyTextStyle = {\n  color: \"#334155\",\n  fontSize: \"15px\",\n  lineHeight: \"26px\",\n  margin: \"0 0 18px\",\n}\n\nconst supportingTextStyle = {\n  color: \"#64748b\",\n  fontSize: \"14px\",\n  lineHeight: \"23px\",\n  margin: \"0 0 16px\","
+      }
+    ],
+    "expected_sources": [
+      "backend/app/api/routes/login.py",
+      "backend/app/utils.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/login.py",
+      "backend/app/utils.py",
+      "packages/react-email/emails/reset_password.tsx"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The password-recovery route looks up the user by email and generates a password-reset token.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "A password-recovery email containing the reset information is sent to the user.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "Reset tokens are JWTs containing the user's email as the subject and an expiration time.",
+          "expected_source": "backend/app/utils.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The reset route verifies the token, finds the user, hashes the new password, and commits the change.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The reset token contains the user's plaintext password.",
+          "present": null
+        },
+        {
+          "claim": "The new password is stored without hashing.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The password-recovery route looks up the user by email and generates a password-reset token.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "A password-recovery email containing the reset information is sent to the user.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Reset tokens are JWTs containing the user's email as the subject and an expiration time.",
+          "expected_source": "backend/app/utils.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The reset route verifies the token, finds the user, hashes the new password, and commits the change.",
+          "expected_source": "backend/app/api/routes/login.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The reset token contains the user's plaintext password.",
+          "present": false
+        },
+        {
+          "claim": "The new password is stored without hashing.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "authenticated_user",
+    "question": "How is the current authenticated user resolved from an access token?",
+    "answerable": true,
+    "answer": "- The current authenticated user is resolved from an access token using the `crud.authenticate` function within the `login_access_token` endpoint. [backend/app/api/routes/login.py:1-60]\n- The `crud.authenticate` function takes a `session` and `form_data` as dependencies, where `form_data` contains the username and password. It then checks if the provided credentials match an existing user and verifies the password. If the user is found and active, it generates an access token using `security.create_access_token` and returns it. [backend/app/api/routes/login.py:1-60]\n- The current authenticated user is resolved from an access token by decoding the JWT token using the `security.ALGORITHM` algorithm and the `settings.SECRET_KEY`. The payload is then extracted, and the `sub` field is used to retrieve the user from the database session. [backend/app/api/deps.py:1-57]\n- The current authenticated user is resolved from an access token through the `current_user` dependency in the `update_user` route. [backend/app/api/routes/users.py:151-210]\n- The `current_user` dependency is likely provided by an authentication library or framework, which verifies the token and assigns the authenticated user to the `current_user` object. [backend/app/api/routes/users.py:151-210]\n- The current authenticated user is resolved from an access token by using the `loginAccessToken` method from the `LoginService` to retrieve the user information and then setting the access token in local storage. [frontend/src/hooks/useAuth.ts:1-60]",
+    "sources": [
+      {
+        "citation": "[backend/app/api/routes/login.py:1-60]",
+        "content": "from datetime import timedelta\nfrom typing import Annotated, Any\n\nfrom fastapi import APIRouter, Depends, HTTPException\nfrom fastapi.responses import HTMLResponse\nfrom fastapi.security import OAuth2PasswordRequestForm\n\nfrom app import crud\nfrom app.api.deps import CurrentUser, SessionDep, get_current_active_superuser\nfrom app.core import security\nfrom app.core.config import settings\nfrom app.models import Message, NewPassword, Token, UserPublic, UserUpdate\nfrom app.utils import (\n    generate_password_reset_token,\n    generate_reset_password_email,\n    send_email,\n    verify_password_reset_token,\n)\n\nrouter = APIRouter(tags=[\"login\"])\n\n\n@router.post(\"/login/access-token\")\ndef login_access_token(\n    session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]\n) -> Token:\n    \"\"\"\n    OAuth2 compatible token login, get an access token for future requests\n    \"\"\"\n    user = crud.authenticate(\n        session=session, email=form_data.username, password=form_data.password\n    )\n    if not user:\n        raise HTTPException(status_code=400, detail=\"Incorrect email or password\")\n    elif not user.is_active:\n        raise HTTPException(status_code=400, detail=\"Inactive user\")\n    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)\n    return Token(\n        access_token=security.create_access_token(\n            user.id, expires_delta=access_token_expires\n        )\n    )\n\n\n@router.post(\"/login/test-token\", response_model=UserPublic)\ndef test_token(current_user: CurrentUser) -> Any:\n    \"\"\"\n    Test access token\n    \"\"\"\n    return current_user\n\n\n@router.post(\"/password-recovery/{email}\")\ndef recover_password(email: str, session: SessionDep) -> Message:\n    \"\"\"\n    Password Recovery\n    \"\"\"\n    user = crud.get_user_by_email(session=session, email=email)\n\n    # Always return the same response to prevent email enumeration attacks"
+      },
+      {
+        "citation": "[backend/app/api/deps.py:1-57]",
+        "content": "from collections.abc import Generator\nfrom typing import Annotated\n\nimport jwt\nfrom fastapi import Depends, HTTPException, status\nfrom fastapi.security import OAuth2PasswordBearer\nfrom jwt.exceptions import InvalidTokenError\nfrom pydantic import ValidationError\nfrom sqlmodel import Session\n\nfrom app.core import security\nfrom app.core.config import settings\nfrom app.core.db import engine\nfrom app.models import TokenPayload, User\n\nreusable_oauth2 = OAuth2PasswordBearer(\n    tokenUrl=f\"{settings.API_V1_STR}/login/access-token\"\n)\n\n\ndef get_db() -> Generator[Session]:\n    with Session(engine) as session:\n        yield session\n\n\nSessionDep = Annotated[Session, Depends(get_db)]\nTokenDep = Annotated[str, Depends(reusable_oauth2)]\n\n\ndef get_current_user(session: SessionDep, token: TokenDep) -> User:\n    try:\n        payload = jwt.decode(\n            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]\n        )\n        token_data = TokenPayload(**payload)\n    except InvalidTokenError, ValidationError:\n        raise HTTPException(\n            status_code=status.HTTP_403_FORBIDDEN,\n            detail=\"Could not validate credentials\",\n        )\n    user = session.get(User, token_data.sub)\n    if not user:\n        raise HTTPException(status_code=404, detail=\"User not found\")\n    if not user.is_active:\n        raise HTTPException(status_code=400, detail=\"Inactive user\")\n    return user\n\n\nCurrentUser = Annotated[User, Depends(get_current_user)]\n\n\ndef get_current_active_superuser(current_user: CurrentUser) -> User:\n    if not current_user.is_superuser:\n        raise HTTPException(\n            status_code=403, detail=\"The user doesn't have enough privileges\"\n        )\n    return current_user"
+      },
+      {
+        "citation": "[backend/app/api/routes/users.py:151-210]",
+        "content": "user = crud.get_user_by_email(session=session, email=user_in.email)\n    if user:\n        raise HTTPException(\n            status_code=400,\n            detail=\"The user with this email already exists in the system\",\n        )\n    user_create = UserCreate.model_validate(user_in)\n    user = crud.create_user(session=session, user_create=user_create)\n    return user\n\n\n@router.get(\"/{user_id}\", response_model=UserPublic)\ndef read_user_by_id(\n    user_id: uuid.UUID, session: SessionDep, current_user: CurrentUser\n) -> Any:\n    \"\"\"\n    Get a specific user by id.\n    \"\"\"\n    user = session.get(User, user_id)\n    if user == current_user:\n        return user\n    if not current_user.is_superuser:\n        raise HTTPException(\n            status_code=403,\n            detail=\"The user doesn't have enough privileges\",\n        )\n    if user is None:\n        raise HTTPException(status_code=404, detail=\"User not found\")\n    return user\n\n\n@router.patch(\n    \"/{user_id}\",\n    dependencies=[Depends(get_current_active_superuser)],\n    response_model=UserPublic,\n)\ndef update_user(\n    *,\n    session: SessionDep,\n    user_id: uuid.UUID,\n    user_in: UserUpdate,\n) -> Any:\n    \"\"\"\n    Update a user.\n    \"\"\"\n\n    db_user = session.get(User, user_id)\n    if not db_user:\n        raise HTTPException(\n            status_code=404,\n            detail=\"The user with this id does not exist in the system\",\n        )\n    if user_in.email:\n        existing_user = crud.get_user_by_email(session=session, email=user_in.email)\n        if existing_user and existing_user.id != user_id:\n            raise HTTPException(\n                status_code=409, detail=\"User with this email already exists\"\n            )\n\n    db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)"
+      },
+      {
+        "citation": "[frontend/src/hooks/useAuth.ts:1-60]",
+        "content": "import { useMutation, useQuery, useQueryClient } from \"@tanstack/react-query\"\nimport { useNavigate } from \"@tanstack/react-router\"\n\nimport {\n  type Body_login_login_access_token as AccessToken,\n  LoginService,\n  type UserPublic,\n  type UserRegister,\n  UsersService,\n} from \"@/client\"\nimport { handleError } from \"@/utils\"\nimport useCustomToast from \"./useCustomToast\"\n\nconst isLoggedIn = () => {\n  return localStorage.getItem(\"access_token\") !== null\n}\n\nconst useAuth = () => {\n  const navigate = useNavigate()\n  const queryClient = useQueryClient()\n  const { showErrorToast } = useCustomToast()\n\n  const { data: user } = useQuery<UserPublic | null, Error>({\n    queryKey: [\"currentUser\"],\n    queryFn: async () => (await UsersService.readUserMe()).data,\n    enabled: isLoggedIn(),\n  })\n\n  const signUpMutation = useMutation({\n    mutationFn: (data: UserRegister) =>\n      UsersService.registerUser({ body: data }),\n    onSuccess: () => {\n      navigate({ to: \"/login\" })\n    },\n    onError: handleError.bind(showErrorToast),\n    onSettled: () => {\n      queryClient.invalidateQueries({ queryKey: [\"users\"] })\n    },\n  })\n\n  const login = async (data: AccessToken) => {\n    const response = await LoginService.loginAccessToken({\n      body: data,\n    })\n    localStorage.setItem(\"access_token\", response.data.access_token)\n  }\n\n  const loginMutation = useMutation({\n    mutationFn: login,\n    onSuccess: () => {\n      navigate({ to: \"/\" })\n    },\n    onError: handleError.bind(showErrorToast),\n  })\n\n  const logout = () => {\n    localStorage.removeItem(\"access_token\")\n    navigate({ to: \"/login\" })\n  }"
+      }
+    ],
+    "expected_sources": [
+      "backend/app/api/deps.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/deps.py",
+      "backend/app/api/routes/login.py",
+      "backend/app/api/routes/users.py",
+      "frontend/src/hooks/useAuth.ts"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The bearer token is obtained through OAuth2PasswordBearer.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The token is decoded using the configured secret key and JWT algorithm.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The decoded token subject is used to retrieve the user from the database.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "Invalid tokens or missing users cause an HTTP error instead of authenticating the request.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The access token stores the user's plaintext password.",
+          "present": null
+        },
+        {
+          "claim": "The token is trusted without being decoded or validated.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The bearer token is obtained through OAuth2PasswordBearer.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The token is decoded using the configured secret key and JWT algorithm.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "The decoded token subject is used to retrieve the user from the database.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Invalid tokens or missing users cause an HTTP error instead of authenticating the request.",
+          "expected_source": "backend/app/api/deps.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The access token stores the user's plaintext password.",
+          "present": false
+        },
+        {
+          "claim": "The token is trusted without being decoded or validated.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "fastapi_configuration",
+    "question": "How is the FastAPI application configured?",
+    "answerable": true,
+    "answer": "- Add the `PROJECT_NAME`, `FIRST_SUPERUSER`, `FRONTEND_HOST`, `SMTP_HOST`, `SMTP_USER`, `EMAILS_FROM_EMAIL`, `SMTP_PASSWORD`, `SENTRY_DSN`, `SECRET_KEY`, `FIRST_SUPERUSER_PASSWORD`, `DATABASE_URL`, `FASTAPI_CLOUD_TOKEN`, and `FASTAPI_CLOUD_APP_ID` environment variables to the FastAPI Cloud application. [deployment.md:1-60]\n- Configure the PostgreSQL database using the provided integration or manually configure the `DATABASE_URL` secret. [deployment.md:1-60]\n- The FastAPI application is configured using the `uv` (Unicorn) package. [.github/workflows/deploy.yml:1-54]\n- The `uv` package is used to run the FastAPI application on FastAPI Cloud. [.github/workflows/deploy.yml:1-54]\n- The FastAPI application is configured in the `README.md` file. [README.md:51-88]\n- The FastAPI application is also configured in the `deployment.md` file. [README.md:51-88]",
+    "sources": [
+      {
+        "citation": "[deployment.md:1-60]",
+        "content": "# FastAPI Project - Deployment\n\nDeploy the project to [FastAPI Cloud](https://fastapicloud.com) with the included GitHub Actions workflow.\n\n## Create the FastAPI Cloud Application\n\nCreate an application in FastAPI Cloud and set its [Application Directory](https://fastapicloud.com/docs/builds-and-deployments/application-directory/) to `backend`.\n\nConnect a PostgreSQL database using the [Neon](https://fastapicloud.com/docs/integrations/neon-integration/) or [Supabase](https://fastapicloud.com/docs/integrations/supabase-integration/) integration. Both integrations configure a `DATABASE_URL` secret automatically. You can also configure `DATABASE_URL` manually for another PostgreSQL provider.\n\n## Configure the Application\n\n### Environment Variables\n\nAdd these required [environment variables](https://fastapicloud.com/docs/builds-and-deployments/environment-variables/) to the FastAPI Cloud application:\n\n* `PROJECT_NAME`: The name of the project, used in the API documentation and emails.\n* `FIRST_SUPERUSER`: The email address of the first superuser.\n* `FRONTEND_HOST`: The public URL of the application, such as the generated `https://your-app.fastapicloud.dev` URL or a custom domain.\n\nTo enable emails, add these optional environment variables with values from your email provider:\n\n* `SMTP_HOST`\n* `SMTP_USER`\n* `EMAILS_FROM_EMAIL`\n\nTo enable Sentry, configure `SENTRY_DSN`.\n\n### Secrets\n\nAdd these required values and mark them as secrets:\n\n* `SECRET_KEY`: A secret key used to sign security tokens.\n* `FIRST_SUPERUSER_PASSWORD`: The password of the first superuser.\n* `DATABASE_URL`: The PostgreSQL connection URL, configured automatically when using a database integration.\n\nTo enable emails with an authenticated provider, add `SMTP_PASSWORD` as a secret.\n\nYou can generate secure values for `SECRET_KEY` and `FIRST_SUPERUSER_PASSWORD` with:\n\n```bash\npython -c \"import secrets; print(secrets.token_urlsafe(32))\"\n```\n\n## Configure Continuous Deployment\n\nThe included `.github/workflows/deploy.yml` workflow builds the frontend, prepares the database, and deploys the application whenever changes are pushed to `master`. You can also run it manually from the **Actions** tab.\n\nLog in to FastAPI Cloud and configure the [deploy token](https://fastapicloud.com/docs/advanced-features/deploy-tokens/) and application ID as GitHub repository secrets:\n\n```bash\nuv run fastapi login\nuv run fastapi cloud setup-ci --secrets-only --app-id <your-app-id>\n```\n\nIf the GitHub CLI is installed and authenticated, the command configures `FASTAPI_CLOUD_TOKEN` and `FASTAPI_CLOUD_APP_ID` automatically. Otherwise, it prints the values so you can add them in your repository under **Settings** > **Secrets and variables** > **Actions**.\n\nThe workflow runs database migrations and creates the first superuser before deploying. In the repository's **Settings** > **Secrets and variables** > **Actions** page, add these repository variables:\n\n* `PROJECT_NAME`"
+      },
+      {
+        "citation": "[.github/workflows/deploy.yml:1-54]",
+        "content": "name: Deploy\n\non:\n  push:\n    branches:\n      - master\n    paths-ignore:\n      - release-notes.md\n  workflow_dispatch:\n\npermissions:\n  contents: read\n\njobs:\n  deploy:\n    # Do not deploy the template repository, only projects created from it\n    if: github.repository != 'fastapi/full-stack-fastapi-template'\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - name: Checkout\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n      - name: Set up Bun\n        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0\n        with:\n          bun-version: 1.3.12\n      - name: Install frontend dependencies\n        run: bun ci\n      - name: Build frontend\n        run: bun run --filter frontend build\n        env:\n          # Override frontend/.env so the deployed frontend uses the same origin as the API\n          VITE_API_URL: \"\"\n      - name: Set up uv\n        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2\n        with:\n          version: \"latest-known\"\n      - name: Prepare database\n        run: uv run bash scripts/prestart.sh\n        working-directory: backend\n        env:\n          DATABASE_URL: ${{ secrets.DATABASE_URL }}\n          PROJECT_NAME: ${{ vars.PROJECT_NAME }}\n          SECRET_KEY: ${{ secrets.SECRET_KEY }}\n          FIRST_SUPERUSER: ${{ vars.FIRST_SUPERUSER }}\n          FIRST_SUPERUSER_PASSWORD: ${{ secrets.FIRST_SUPERUSER_PASSWORD }}\n      - name: Deploy to FastAPI Cloud\n        run: uv run fastapi deploy\n        env:\n          FASTAPI_CLOUD_TOKEN: ${{ secrets.FASTAPI_CLOUD_TOKEN }}\n          FASTAPI_CLOUD_APP_ID: ${{ secrets.FASTAPI_CLOUD_APP_ID }}"
+      },
+      {
+        "citation": "[README.md:51-88]",
+        "content": "![Mailpit screenshot](img/mailpit.png)\n\n### Interactive API Documentation\n\n![API docs](img/docs.png)\n\n## How to Use It\n\nClick the **Use this template** button at the top of this page to create a new repository.\n\n## Backend Development\n\nBackend docs: [backend/README.md](./backend/README.md).\n\n## Frontend Development\n\nFrontend docs: [frontend/README.md](./frontend/README.md).\n\n## Deployment\n\nFastAPI Cloud deployment: [deployment.md](./deployment.md).\n\nSelf-hosted deployment with Docker Compose: [deployment-docker-compose.md](./deployment-docker-compose.md).\n\n## Development\n\nGeneral development docs: [development.md](./development.md).\n\nThis includes the local FastAPI and Vite workflow, Docker Compose services, `.env` configuration, and more.\n\n## Release Notes\n\nCheck the file [release-notes.md](./release-notes.md).\n\n## License\n\nThe Full Stack FastAPI Template is licensed under the terms of the MIT license."
+      }
+    ],
+    "expected_sources": [
+      "backend/app/main.py"
+    ],
+    "cited_sources": [
+      ".github/workflows/deploy.yml",
+      "README.md",
+      "deployment.md"
+    ],
+    "expected_source_recall": 0.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The application creates a FastAPI instance using values from the application settings.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "CORS middleware is added using the configured allowed origins.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The main API router is included under the configured API version prefix.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The application is implemented with Django.",
+          "present": null
+        },
+        {
+          "claim": "All API routes are declared directly inside backend/app/main.py.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The application creates a FastAPI instance using values from the application settings.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "CORS middleware is added using the configured allowed origins.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "The main API router is included under the configured API version prefix.",
+          "expected_source": "backend/app/main.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The application is implemented with Django.",
+          "present": false
+        },
+        {
+          "claim": "All API routes are declared directly inside backend/app/main.py.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "first_superuser",
+    "question": "How is the database initialized with the first superuser?",
+    "answerable": true,
+    "answer": "- The database initializes the first superuser by creating a new user with the email \"admin@admin.com\" and setting the password \"admin\". [backend/app/api/routes/users.py:151-210]\n- The database is initialized with the first superuser by querying the `User` table using the email `settings.FIRST_SUPERUSER` and checking if a user with that email exists in the session. If not, a new user is created with the specified email, password, and `is_superuser` attribute set to `True`. [backend/app/core/db.py:1-33]\n- The database is initialized with the first superuser by setting the `FIRST_SUPERUSER` environment variable to the desired username. [compose.yml:51-88]\n- The `FIRST_SUPERUSER_PASSWORD` environment variable is also set to the desired password for the superuser account. [compose.yml:51-88]\n- The database is initialized with the first superuser by setting `FIRST_SUPERUSER` and `FIRST_SUPERUSER_PASSWORD` in the `Settings` class. [backend/app/core/config.py:51-91]\n- The database is initialized with the first superuser by creating a new user with the email `settings.FIRST_SUPERUSER` and password `random_lower_string()`. This user is then authenticated and assigned the `is_superuser` attribute to `True`. [backend/tests/api/routes/test_users.py:1-60]",
+    "sources": [
+      {
+        "citation": "[backend/app/api/routes/users.py:151-210]",
+        "content": "user = crud.get_user_by_email(session=session, email=user_in.email)\n    if user:\n        raise HTTPException(\n            status_code=400,\n            detail=\"The user with this email already exists in the system\",\n        )\n    user_create = UserCreate.model_validate(user_in)\n    user = crud.create_user(session=session, user_create=user_create)\n    return user\n\n\n@router.get(\"/{user_id}\", response_model=UserPublic)\ndef read_user_by_id(\n    user_id: uuid.UUID, session: SessionDep, current_user: CurrentUser\n) -> Any:\n    \"\"\"\n    Get a specific user by id.\n    \"\"\"\n    user = session.get(User, user_id)\n    if user == current_user:\n        return user\n    if not current_user.is_superuser:\n        raise HTTPException(\n            status_code=403,\n            detail=\"The user doesn't have enough privileges\",\n        )\n    if user is None:\n        raise HTTPException(status_code=404, detail=\"User not found\")\n    return user\n\n\n@router.patch(\n    \"/{user_id}\",\n    dependencies=[Depends(get_current_active_superuser)],\n    response_model=UserPublic,\n)\ndef update_user(\n    *,\n    session: SessionDep,\n    user_id: uuid.UUID,\n    user_in: UserUpdate,\n) -> Any:\n    \"\"\"\n    Update a user.\n    \"\"\"\n\n    db_user = session.get(User, user_id)\n    if not db_user:\n        raise HTTPException(\n            status_code=404,\n            detail=\"The user with this id does not exist in the system\",\n        )\n    if user_in.email:\n        existing_user = crud.get_user_by_email(session=session, email=user_in.email)\n        if existing_user and existing_user.id != user_id:\n            raise HTTPException(\n                status_code=409, detail=\"User with this email already exists\"\n            )\n\n    db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)"
+      },
+      {
+        "citation": "[backend/app/core/db.py:1-33]",
+        "content": "from sqlmodel import Session, create_engine, select\n\nfrom app import crud\nfrom app.core.config import settings\nfrom app.models import User, UserCreate\n\nengine = create_engine(str(settings.DATABASE_URL), pool_pre_ping=True)\n\n\n# make sure all SQLModel models are imported (app.models) before initializing DB\n# otherwise, SQLModel might fail to initialize relationships properly\n# for more details: https://github.com/fastapi/full-stack-fastapi-template/issues/28\n\n\ndef init_db(session: Session) -> None:\n    # Tables should be created with Alembic migrations\n    # But if you don't want to use migrations, create\n    # the tables un-commenting the next lines\n    # from sqlmodel import SQLModel\n\n    # This works because the models are already imported and registered from app.models\n    # SQLModel.metadata.create_all(engine)\n\n    user = session.exec(\n        select(User).where(User.email == settings.FIRST_SUPERUSER)\n    ).first()\n    if not user:\n        user_in = UserCreate(\n            email=settings.FIRST_SUPERUSER,\n            password=settings.FIRST_SUPERUSER_PASSWORD,\n            is_superuser=True,\n        )\n        user = crud.create_user(session=session, user_create=user_in)"
+      },
+      {
+        "citation": "[compose.yml:51-88]",
+        "content": "depends_on:\n      db:\n        condition: service_healthy\n        restart: true\n    environment:\n      PROJECT_NAME: ${PROJECT_NAME:?Variable not set}\n      SECRET_KEY: ${SECRET_KEY:?Variable not set}\n      FIRST_SUPERUSER: ${FIRST_SUPERUSER:?Variable not set}\n      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:?Variable not set}\n      SMTP_HOST: ${SMTP_HOST}\n      SMTP_USER: ${SMTP_USER:-}\n      SMTP_PASSWORD: ${SMTP_PASSWORD:-}\n      EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL}\n      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:?Variable not set}@db:5432/app\n      SENTRY_DSN: ${SENTRY_DSN:-}\n\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:8000/api/v1/utils/health-check/\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\n    build:\n      context: .\n      dockerfile: backend/Dockerfile\n    labels:\n      # Enable Traefik for this service\n      - traefik.enable=true\n\n      # Define the port inside of the Docker service to use\n      - traefik.http.services.backend.loadbalancer.server.port=8000\n\n      # Route HTTP traffic for this domain\n      - traefik.http.routers.backend-http.rule=Host(`${DOMAIN:-localhost}`)\n      - traefik.http.routers.backend-http.entrypoints=http\n\nvolumes:\n  app-db-data:"
+      },
+      {
+        "citation": "[backend/app/core/config.py:51-91]",
+        "content": "@model_validator(mode=\"after\")\n    def _set_default_emails_from(self) -> Self:\n        if not self.EMAILS_FROM_NAME:\n            self.EMAILS_FROM_NAME = self.PROJECT_NAME\n        return self\n\n    EMAIL_RESET_TOKEN_EXPIRE_HOURS: int = 48\n\n    @computed_field  # type: ignore[prop-decorator]\n    @property\n    def emails_enabled(self) -> bool:\n        return bool(self.SMTP_HOST and self.EMAILS_FROM_EMAIL)\n\n    EMAIL_TEST_USER: EmailStr = \"test@example.com\"\n    FIRST_SUPERUSER: EmailStr\n    FIRST_SUPERUSER_PASSWORD: str\n\n    def _check_default_secret(self, var_name: str, value: str | None) -> None:\n        if value == \"changethis\":\n            message = (\n                f'The value of {var_name} is \"changethis\", '\n                \"for security, please change it, at least for deployments.\"\n            )\n            if self.FASTAPI_ENV == \"development\":\n                warnings.warn(message, stacklevel=1)\n            else:\n                raise ValueError(message)\n\n    @model_validator(mode=\"after\")\n    def _enforce_non_default_secrets(self) -> Self:\n        self._check_default_secret(\"SECRET_KEY\", self.SECRET_KEY)\n        for host in self.DATABASE_URL.hosts():\n            self._check_default_secret(\"DATABASE_URL password\", host[\"password\"])\n        self._check_default_secret(\n            \"FIRST_SUPERUSER_PASSWORD\", self.FIRST_SUPERUSER_PASSWORD\n        )\n\n        return self\n\n\nsettings = Settings()  # type: ignore # ty: ignore[unused-ignore-comment]"
+      },
+      {
+        "citation": "[backend/tests/api/routes/test_users.py:1-60]",
+        "content": "import uuid\nfrom unittest.mock import patch\n\nfrom fastapi.testclient import TestClient\nfrom sqlmodel import Session, select\n\nfrom app import crud\nfrom app.core.config import settings\nfrom app.core.security import verify_password\nfrom app.models import User, UserCreate\nfrom tests.utils.user import create_random_user\nfrom tests.utils.utils import random_email, random_lower_string\n\n\ndef test_get_users_superuser_me(\n    client: TestClient, superuser_token_headers: dict[str, str]\n) -> None:\n    r = client.get(f\"{settings.API_V1_STR}/users/me\", headers=superuser_token_headers)\n    current_user = r.json()\n    assert current_user\n    assert current_user[\"is_active\"] is True\n    assert current_user[\"is_superuser\"]\n    assert current_user[\"email\"] == settings.FIRST_SUPERUSER\n\n\ndef test_get_users_normal_user_me(\n    client: TestClient, normal_user_token_headers: dict[str, str]\n) -> None:\n    r = client.get(f\"{settings.API_V1_STR}/users/me\", headers=normal_user_token_headers)\n    current_user = r.json()\n    assert current_user\n    assert current_user[\"is_active\"] is True\n    assert current_user[\"is_superuser\"] is False\n    assert current_user[\"email\"] == settings.EMAIL_TEST_USER\n\n\ndef test_create_user_new_email(\n    client: TestClient, superuser_token_headers: dict[str, str], db: Session\n) -> None:\n    with (\n        patch(\"app.utils.send_email\", return_value=None),\n        patch(\"app.core.config.settings.SMTP_HOST\", \"smtp.example.com\"),\n        patch(\"app.core.config.settings.SMTP_USER\", \"admin@example.com\"),\n    ):\n        username = random_email()\n        password = random_lower_string()\n        data = {\"email\": username, \"password\": password}\n        r = client.post(\n            f\"{settings.API_V1_STR}/users/\",\n            headers=superuser_token_headers,\n            json=data,\n        )\n        assert 200 <= r.status_code < 300\n        created_user = r.json()\n        user = crud.get_user_by_email(session=db, email=username)\n        assert user\n        assert user.email == created_user[\"email\"]\n\n\ndef test_get_existing_user_as_superuser("
+      }
+    ],
+    "expected_sources": [
+      "backend/app/core/db.py",
+      "backend/app/initial_data.py"
+    ],
+    "cited_sources": [
+      "backend/app/api/routes/users.py",
+      "backend/app/core/config.py",
+      "backend/app/core/db.py",
+      "backend/tests/api/routes/test_users.py",
+      "compose.yml"
+    ],
+    "expected_source_recall": 0.5,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The initialization entry point opens a database session and calls init_db.",
+          "expected_source": "backend/app/initial_data.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "init_db checks whether the configured first-superuser email already exists.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": null
+        },
+        {
+          "fact": "If the user does not exist, it creates a superuser using the configured email and password.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "A new first superuser is created every time initialization runs.",
+          "present": null
+        },
+        {
+          "claim": "The superuser password is hard-coded directly in initial_data.py.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The initialization entry point opens a database session and calls init_db.",
+          "expected_source": "backend/app/initial_data.py",
+          "present_and_supported": false
+        },
+        {
+          "fact": "init_db checks whether the configured first-superuser email already exists.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": true
+        },
+        {
+          "fact": "If the user does not exist, it creates a superuser using the configured email and password.",
+          "expected_source": "backend/app/core/db.py",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "A new first superuser is created every time initialization runs.",
+          "present": true
+        },
+        {
+          "claim": "The superuser password is hard-coded directly in initial_data.py.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "frontend_authentication",
+    "question": "How does the frontend store the access token and manage login and logout?",
+    "answerable": true,
+    "answer": "- The frontend does not store the access token directly; it is managed by the backend. [backend/app/api/routes/login.py:1-60]\n- The frontend does not manage login and logout; it relies on the backend for these functionalities. [backend/app/api/routes/login.py:1-60]\n- The frontend stores the access token in the `localStorage` using the `localStorage.setItem` method. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend manages login by calling the `LoginService.loginAccessToken` method with the provided access token data, and then stores the access token in `localStorage` using `localStorage.setItem`. [frontend/src/hooks/useAuth.ts:1-60]\n- The frontend does not store the access token directly. [backend/app/api/deps.py:1-57]\n- The frontend manages login and logout by interacting with the backend through the `reusable_oauth2` dependency. [backend/app/api/deps.py:1-57]",
+    "sources": [
+      {
+        "citation": "[backend/app/api/routes/login.py:1-60]",
+        "content": "from datetime import timedelta\nfrom typing import Annotated, Any\n\nfrom fastapi import APIRouter, Depends, HTTPException\nfrom fastapi.responses import HTMLResponse\nfrom fastapi.security import OAuth2PasswordRequestForm\n\nfrom app import crud\nfrom app.api.deps import CurrentUser, SessionDep, get_current_active_superuser\nfrom app.core import security\nfrom app.core.config import settings\nfrom app.models import Message, NewPassword, Token, UserPublic, UserUpdate\nfrom app.utils import (\n    generate_password_reset_token,\n    generate_reset_password_email,\n    send_email,\n    verify_password_reset_token,\n)\n\nrouter = APIRouter(tags=[\"login\"])\n\n\n@router.post(\"/login/access-token\")\ndef login_access_token(\n    session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]\n) -> Token:\n    \"\"\"\n    OAuth2 compatible token login, get an access token for future requests\n    \"\"\"\n    user = crud.authenticate(\n        session=session, email=form_data.username, password=form_data.password\n    )\n    if not user:\n        raise HTTPException(status_code=400, detail=\"Incorrect email or password\")\n    elif not user.is_active:\n        raise HTTPException(status_code=400, detail=\"Inactive user\")\n    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)\n    return Token(\n        access_token=security.create_access_token(\n            user.id, expires_delta=access_token_expires\n        )\n    )\n\n\n@router.post(\"/login/test-token\", response_model=UserPublic)\ndef test_token(current_user: CurrentUser) -> Any:\n    \"\"\"\n    Test access token\n    \"\"\"\n    return current_user\n\n\n@router.post(\"/password-recovery/{email}\")\ndef recover_password(email: str, session: SessionDep) -> Message:\n    \"\"\"\n    Password Recovery\n    \"\"\"\n    user = crud.get_user_by_email(session=session, email=email)\n\n    # Always return the same response to prevent email enumeration attacks"
+      },
+      {
+        "citation": "[frontend/src/hooks/useAuth.ts:1-60]",
+        "content": "import { useMutation, useQuery, useQueryClient } from \"@tanstack/react-query\"\nimport { useNavigate } from \"@tanstack/react-router\"\n\nimport {\n  type Body_login_login_access_token as AccessToken,\n  LoginService,\n  type UserPublic,\n  type UserRegister,\n  UsersService,\n} from \"@/client\"\nimport { handleError } from \"@/utils\"\nimport useCustomToast from \"./useCustomToast\"\n\nconst isLoggedIn = () => {\n  return localStorage.getItem(\"access_token\") !== null\n}\n\nconst useAuth = () => {\n  const navigate = useNavigate()\n  const queryClient = useQueryClient()\n  const { showErrorToast } = useCustomToast()\n\n  const { data: user } = useQuery<UserPublic | null, Error>({\n    queryKey: [\"currentUser\"],\n    queryFn: async () => (await UsersService.readUserMe()).data,\n    enabled: isLoggedIn(),\n  })\n\n  const signUpMutation = useMutation({\n    mutationFn: (data: UserRegister) =>\n      UsersService.registerUser({ body: data }),\n    onSuccess: () => {\n      navigate({ to: \"/login\" })\n    },\n    onError: handleError.bind(showErrorToast),\n    onSettled: () => {\n      queryClient.invalidateQueries({ queryKey: [\"users\"] })\n    },\n  })\n\n  const login = async (data: AccessToken) => {\n    const response = await LoginService.loginAccessToken({\n      body: data,\n    })\n    localStorage.setItem(\"access_token\", response.data.access_token)\n  }\n\n  const loginMutation = useMutation({\n    mutationFn: login,\n    onSuccess: () => {\n      navigate({ to: \"/\" })\n    },\n    onError: handleError.bind(showErrorToast),\n  })\n\n  const logout = () => {\n    localStorage.removeItem(\"access_token\")\n    navigate({ to: \"/login\" })\n  }"
+      },
+      {
+        "citation": "[backend/app/api/deps.py:1-57]",
+        "content": "from collections.abc import Generator\nfrom typing import Annotated\n\nimport jwt\nfrom fastapi import Depends, HTTPException, status\nfrom fastapi.security import OAuth2PasswordBearer\nfrom jwt.exceptions import InvalidTokenError\nfrom pydantic import ValidationError\nfrom sqlmodel import Session\n\nfrom app.core import security\nfrom app.core.config import settings\nfrom app.core.db import engine\nfrom app.models import TokenPayload, User\n\nreusable_oauth2 = OAuth2PasswordBearer(\n    tokenUrl=f\"{settings.API_V1_STR}/login/access-token\"\n)\n\n\ndef get_db() -> Generator[Session]:\n    with Session(engine) as session:\n        yield session\n\n\nSessionDep = Annotated[Session, Depends(get_db)]\nTokenDep = Annotated[str, Depends(reusable_oauth2)]\n\n\ndef get_current_user(session: SessionDep, token: TokenDep) -> User:\n    try:\n        payload = jwt.decode(\n            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]\n        )\n        token_data = TokenPayload(**payload)\n    except InvalidTokenError, ValidationError:\n        raise HTTPException(\n            status_code=status.HTTP_403_FORBIDDEN,\n            detail=\"Could not validate credentials\",\n        )\n    user = session.get(User, token_data.sub)\n    if not user:\n        raise HTTPException(status_code=404, detail=\"User not found\")\n    if not user.is_active:\n        raise HTTPException(status_code=400, detail=\"Inactive user\")\n    return user\n\n\nCurrentUser = Annotated[User, Depends(get_current_user)]\n\n\ndef get_current_active_superuser(current_user: CurrentUser) -> User:\n    if not current_user.is_superuser:\n        raise HTTPException(\n            status_code=403, detail=\"The user doesn't have enough privileges\"\n        )\n    return current_user"
+      }
+    ],
+    "expected_sources": [
+      "frontend/src/hooks/useAuth.ts"
+    ],
+    "cited_sources": [
+      "backend/app/api/deps.py",
+      "backend/app/api/routes/login.py",
+      "frontend/src/hooks/useAuth.ts"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The frontend login function requests an access token from the login service.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": null
+        },
+        {
+          "fact": "The returned access token is stored in localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": null
+        },
+        {
+          "fact": "Logging out removes the access token from localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": null
+        },
+        {
+          "fact": "Logout clears cached query data and navigates the user to the login page.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The frontend stores the user's plaintext password in localStorage.",
+          "present": null
+        },
+        {
+          "claim": "Logging out leaves the access token in localStorage.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The frontend login function requests an access token from the login service.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        },
+        {
+          "fact": "The returned access token is stored in localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Logging out removes the access token from localStorage.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        },
+        {
+          "fact": "Logout clears cached query data and navigates the user to the login page.",
+          "expected_source": "frontend/src/hooks/useAuth.ts",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The frontend stores the user's plaintext password in localStorage.",
+          "present": false
+        },
+        {
+          "claim": "Logging out leaves the access token in localStorage.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "docker_services",
+    "question": "Which Docker services run the application locally?",
+    "answerable": true,
+    "answer": "- The application runs locally through the backend service. [compose.yml:1-60]\n- The application runs locally through the adminer service. [compose.yml:1-60]\n- The backend runs the application locally. [development.md:51-110]\n- The frontend runs the application locally. [development.md:51-110]\n- The application runs locally through the Docker service named \"backend\". [compose.override.yml:1-60]\n- The application runs locally through the Docker service named \"adminer\". [compose.override.yml:1-60]",
+    "sources": [
+      {
+        "citation": "[compose.yml:1-60]",
+        "content": "services:\n\n  proxy:\n    image: traefik:v3.7\n    volumes:\n      # Add Docker as a mounted volume, so that Traefik can read the labels of other services\n      - /var/run/docker.sock:/var/run/docker.sock:ro\n    command:\n      # Enable Docker in Traefik, so that it reads labels from Docker services\n      - --providers.docker\n      # Do not expose all Docker services, only the ones explicitly exposed\n      - --providers.docker.exposedbydefault=false\n      # Create an entrypoint \"http\" listening on port 80\n      - --entrypoints.http.address=:80\n      # Enable the access log, with HTTP requests\n      - --accesslog\n      # Enable the Traefik log, for configurations and errors\n      - --log\n\n  db:\n    image: postgres:18\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d app\"]\n      interval: 10s\n      retries: 5\n      start_period: 30s\n      timeout: 10s\n    volumes:\n      - app-db-data:/var/lib/postgresql\n    environment:\n      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Variable not set}\n      - POSTGRES_DB=app\n\n  adminer:\n    image: adminer\n    depends_on:\n      - db\n    environment:\n      - ADMINER_DESIGN=pepa-linha-dark\n    labels:\n      # Enable Traefik for this service\n      - traefik.enable=true\n      # Route HTTP traffic for the Adminer subdomain\n      - traefik.http.routers.adminer-http.rule=Host(`adminer.${DOMAIN:-localhost}`)\n      - traefik.http.routers.adminer-http.entrypoints=http\n      # Define the port inside of the Docker service to use\n      - traefik.http.services.adminer.loadbalancer.server.port=8080\n\n  backend:\n    image: backend:latest\n    depends_on:\n      db:\n        condition: service_healthy\n        restart: true\n    environment:\n      PROJECT_NAME: ${PROJECT_NAME:?Variable not set}\n      SECRET_KEY: ${SECRET_KEY:?Variable not set}\n      FIRST_SUPERUSER: ${FIRST_SUPERUSER:?Variable not set}\n      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD:?Variable not set}\n      SMTP_HOST: ${SMTP_HOST}"
+      },
+      {
+        "citation": "[development.md:51-110]",
+        "content": "```\n\nThe build is written to `backend/app/frontend` and served by FastAPI at <http://localhost:8000>. Rebuild the frontend after making frontend changes.\n\n## Full Stack with Docker Compose\n\nTo run the backend and built frontend in Docker Compose:\n\n```bash\ndocker compose run --rm backend bash scripts/prestart.sh\ndocker compose watch\n```\n\nNow you can open these URLs:\n\nApplication, with the frontend and API served by FastAPI: <http://localhost:8000>\n\nAutomatic interactive API documentation with Swagger UI: <http://localhost:8000/docs>\n\nAdminer, database web administration: <http://localhost:8080>\n\nTraefik UI, to see how the routes are being handled by the proxy: <http://localhost:8090>\n\nMailpit: <http://localhost:8025>\n\nStop a locally running FastAPI server before starting the Compose backend because both use port `8000`.\n\n**Note**: The first time you start the stack, it might take a minute for all the services to be ready. To monitor it, use `docker compose logs`, or `docker compose logs backend` for the backend service.\n\n## Mailpit\n\n[Mailpit](https://mailpit.axllent.org) captures emails sent during local development instead of delivering them. The local backend connects to it at `localhost:1025`, and the Compose backend connects to the `mailpit` service. Captured emails are available at <http://localhost:8025>.\n\n## Docker Compose Files and Environment Variables\n\nThe main `compose.yml` file contains the configuration shared by the whole stack. Docker Compose loads it automatically.\n\nThe `compose.override.yml` file adds local development settings, such as mounting the source code as a volume. Docker Compose also loads it automatically and applies it on top of `compose.yml`.\n\nThe `compose.deploy.yml` file contains the deployment-specific settings, including HTTPS and automatic certificate handling. It is explicitly combined with `compose.yml` when deploying the application.\n\nThe backend reads local settings from the `.env` file. Docker Compose also uses it for variable interpolation and passes the settings each container needs.\n\nAfter changing variables, make sure you restart the stack:\n\n```bash\ndocker compose watch\n```\n\n## The `.env` File\n\nThe tracked `.env` file contains local development defaults, passwords, and other configuration. Its hostnames use `localhost` for processes running on your machine. Docker Compose overrides hostnames such as the database and SMTP server with their Compose service names.\n\nDo not store deployment secrets in `.env`. Configure them as described in the [FastAPI Cloud deployment guide](./deployment.md) or the [Docker Compose deployment guide](./deployment-docker-compose.md).\n\n## Pre-commit Hooks and Code Linting\n\nThe project uses [prek](https://prek.j178.dev/), a modern alternative to [pre-commit](https://pre-commit.com/), for code linting and formatting.\n\nYou can find a file `.pre-commit-config.yaml` with configurations at the root of the project."
+      },
+      {
+        "citation": "[compose.override.yml:1-60]",
+        "content": "services:\n\n  proxy:\n    image: traefik:v3.7\n    ports:\n      - \"80:80\"\n      - \"8090:8080\"\n    # Duplicate the command from compose.yml to add --api.insecure=true\n    command:\n      # Enable Docker in Traefik, so that it reads labels from Docker services\n      - --providers.docker\n      # Do not expose all Docker services, only the ones explicitly exposed\n      - --providers.docker.exposedbydefault=false\n      # Create an entrypoint \"http\" listening on port 80\n      - --entrypoints.http.address=:80\n      # Enable the access log, with HTTP requests\n      - --accesslog\n      # Enable the Traefik log, for configurations and errors\n      - --log\n      # Enable debug logging for local development\n      - --log.level=DEBUG\n      # Enable the Dashboard and API\n      - --api\n      # Enable the Dashboard and API in insecure mode for local development\n      - --api.insecure=true\n  db:\n    ports:\n      - \"5432:5432\"\n\n  adminer:\n    ports:\n      - \"8080:8080\"\n\n  backend:\n    ports:\n      - \"8000:8000\"\n    build:\n      context: .\n      dockerfile: backend/Dockerfile\n    # command: sleep infinity  # Infinite loop to keep container alive doing nothing\n    command:\n      - fastapi\n      - dev\n      - --host\n      - \"0.0.0.0\"\n    develop:\n      watch:\n        - path: ./backend\n          action: sync\n          target: /app/backend\n          ignore:\n            - .venv\n        - path: ./backend/pyproject.toml\n          action: rebuild\n        - path: ./frontend\n          action: rebuild\n          ignore:\n            - ./frontend/node_modules\n            - ./frontend/dist\n            - ./frontend/blob-report"
+      }
+    ],
+    "expected_sources": [
+      "compose.yml"
+    ],
+    "cited_sources": [
+      "compose.override.yml",
+      "compose.yml",
+      "development.md"
+    ],
+    "expected_source_recall": 1.0,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [
+        {
+          "fact": "The Compose configuration defines a PostgreSQL database service.",
+          "expected_source": "compose.yml",
+          "present_and_supported": null
+        },
+        {
+          "fact": "It defines a prestart service for initialization tasks.",
+          "expected_source": "compose.yml",
+          "present_and_supported": null
+        },
+        {
+          "fact": "It defines backend and frontend application services.",
+          "expected_source": "compose.yml",
+          "present_and_supported": null
+        },
+        {
+          "fact": "It includes Adminer for database administration.",
+          "expected_source": "compose.yml",
+          "present_and_supported": null
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The local database service uses MongoDB.",
+          "present": null
+        },
+        {
+          "claim": "The application runs without backend or frontend services.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [
+        {
+          "fact": "The Compose configuration defines a PostgreSQL database service.",
+          "expected_source": "compose.yml",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It defines a prestart service for initialization tasks.",
+          "expected_source": "compose.yml",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It defines backend and frontend application services.",
+          "expected_source": "compose.yml",
+          "present_and_supported": true
+        },
+        {
+          "fact": "It includes Adminer for database administration.",
+          "expected_source": "compose.yml",
+          "present_and_supported": true
+        }
+      ],
+      "incorrect_claims": [
+        {
+          "claim": "The local database service uses MongoDB.",
+          "present": false
+        },
+        {
+          "claim": "The application runs without backend or frontend services.",
+          "present": false
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "payment_processing",
+    "question": "How are customer payments processed?",
+    "answerable": false,
+    "answer": "- Customer payments are processed through the deployment of a Docker Compose application. [deployment-docker-compose.md:101-129]\n- The application is accessible via the URL `https://fastapi-project.example.com`. [deployment-docker-compose.md:101-129]\n- Customer payments are processed through the backend system. [backend/app/api/routes/users.py:201-232]\n- Payments are managed through the session and database interactions. [backend/app/api/routes/users.py:201-232]\n- Customer payments are processed through the backend application. [backend/app/models.py:1-60]\n- Payments are handled by the User model, which includes fields for hashed_password and items. [backend/app/models.py:1-60]",
+    "sources": [
+      {
+        "citation": "[deployment-docker-compose.md:101-129]",
+        "content": "```\n\nIn the GitHub repository, go to **Settings** > **Actions** > **Runners**, select **New self-hosted runner**, choose Linux, and follow the commands GitHub provides to download, configure, and register the runner. Install it in `/home/github/actions-runner`.\n\nAfter registering the runner, exit the `github` user session and install the runner as a system service:\n\n```bash\nexit\ncd /home/github/actions-runner\nsudo ./svc.sh install github\nsudo ./svc.sh start\nsudo ./svc.sh status\n```\n\nSee GitHub's guides for [adding a self-hosted runner](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners) and [configuring the runner as a service](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/configure-the-application?platform=linux).\n\n### Run the Deployment\n\nWhen the runner is online, open the repository's **Actions** tab, select **Deploy with Docker Compose**, and select **Run workflow**.\n\n## URLs\n\nReplace `fastapi-project.example.com` with your domain.\n\nApplication (frontend and API): `https://fastapi-project.example.com`\n\nInteractive API docs: `https://fastapi-project.example.com/docs`\n\nAdminer: `https://adminer.fastapi-project.example.com`"
+      },
+      {
+        "citation": "[backend/app/api/routes/users.py:201-232]",
+        "content": "detail=\"The user with this id does not exist in the system\",\n        )\n    if user_in.email:\n        existing_user = crud.get_user_by_email(session=session, email=user_in.email)\n        if existing_user and existing_user.id != user_id:\n            raise HTTPException(\n                status_code=409, detail=\"User with this email already exists\"\n            )\n\n    db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)\n    return db_user\n\n\n@router.delete(\"/{user_id}\", dependencies=[Depends(get_current_active_superuser)])\ndef delete_user(\n    session: SessionDep, current_user: CurrentUser, user_id: uuid.UUID\n) -> Message:\n    \"\"\"\n    Delete a user.\n    \"\"\"\n    user = session.get(User, user_id)\n    if not user:\n        raise HTTPException(status_code=404, detail=\"User not found\")\n    if user == current_user:\n        raise HTTPException(\n            status_code=403, detail=\"Super users are not allowed to delete themselves\"\n        )\n    statement = delete(Item).where(col(Item.owner_id) == user_id)\n    session.exec(statement)\n    session.delete(user)\n    session.commit()\n    return Message(message=\"User deleted successfully\")"
+      },
+      {
+        "citation": "[backend/app/models.py:1-60]",
+        "content": "import uuid\nfrom datetime import UTC, datetime\n\nfrom pydantic import EmailStr\nfrom sqlmodel import Field, Relationship, SQLModel\n\n\ndef get_datetime_utc() -> datetime:\n    return datetime.now(UTC)\n\n\n# Shared properties\nclass UserBase(SQLModel):\n    email: EmailStr = Field(unique=True, index=True, max_length=255)\n    is_active: bool = True\n    is_superuser: bool = False\n    full_name: str | None = Field(default=None, max_length=255)\n\n\n# Properties to receive via API on creation\nclass UserCreate(UserBase):\n    password: str = Field(min_length=8, max_length=128)\n\n\nclass UserRegister(SQLModel):\n    email: EmailStr = Field(max_length=255)\n    password: str = Field(min_length=8, max_length=128)\n    full_name: str | None = Field(default=None, max_length=255)\n\n\n# Properties to receive via API on update, all are optional\nclass UserUpdate(SQLModel):\n    email: EmailStr | None = Field(default=None, max_length=255)\n    is_active: bool | None = None\n    is_superuser: bool | None = None\n    full_name: str | None = Field(default=None, max_length=255)\n    password: str | None = Field(default=None, min_length=8, max_length=128)\n\n\nclass UserUpdateMe(SQLModel):\n    full_name: str | None = Field(default=None, max_length=255)\n    email: EmailStr | None = Field(default=None, max_length=255)\n\n\nclass UpdatePassword(SQLModel):\n    current_password: str = Field(min_length=8, max_length=128)\n    new_password: str = Field(min_length=8, max_length=128)\n\n\n# Database model, database table inferred from class name\nclass User(UserBase, table=True):\n    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)\n    hashed_password: str\n    created_at: datetime | None = Field(default_factory=get_datetime_utc)\n    items: list[Item] = Relationship(back_populates=\"owner\", cascade_delete=True)\n\n\n# Properties to return via API, id is always required\nclass UserPublic(UserBase):\n    id: uuid.UUID"
+      }
+    ],
+    "expected_sources": [],
+    "cited_sources": [
+      "backend/app/api/routes/users.py",
+      "backend/app/models.py",
+      "deployment-docker-compose.md"
+    ],
+    "expected_source_recall": null,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "Payments are processed using Stripe.",
+          "present": null
+        },
+        {
+          "claim": "Payments are processed using PayPal.",
+          "present": null
+        },
+        {
+          "claim": "The repository implements a payment-processing workflow.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "Payments are processed using Stripe.",
+          "present": false
+        },
+        {
+          "claim": "Payments are processed using PayPal.",
+          "present": false
+        },
+        {
+          "claim": "The repository implements a payment-processing workflow.",
+          "present": true
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  },
+  {
+    "id": "api_rate_limiting",
+    "question": "How are API requests rate-limited?",
+    "answerable": false,
+    "answer": "- API requests are rate-limited by GitHub Actions workflows. [.github/workflows/create-draft-release.yml:1-52]\n- API requests are rate-limited by GitHub. [.github/workflows/issue-manager.yml:1-34]\n- API requests are rate-limited by GitHub Actions workflows. [.github/workflows/pre-commit.yml:1-60]\n- API requests are rate-limited. [.github/workflows/detect-conflicts.yml:1-22]",
+    "sources": [
+      {
+        "citation": "[.github/workflows/create-draft-release.yml:1-52]",
+        "content": "name: Create Draft Release\n\non:\n  pull_request:\n    types:\n      - closed\n\npermissions: {}\n\njobs:\n  create-draft-release:\n    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'release')\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      contents: write\n      pull-requests: read\n    steps:\n      - name: Dump GitHub context\n        env:\n          GITHUB_CONTEXT: ${{ toJson(github) }}\n        run: echo \"$GITHUB_CONTEXT\"\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          ref: ${{ github.event.repository.default_branch }}\n          persist-credentials: false\n      - name: Set up Python\n        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n        with:\n          python-version-file: \".python-version\"\n      - name: Install uv\n        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2\n        with:\n          version: \"latest-known\"\n      - name: Extract release details\n        id: release-details\n        run: |\n          set -euo pipefail\n          version=\"$(uv run python scripts/prepare_release.py current-version)\"\n          uv run python scripts/prepare_release.py release-notes > draft-release-notes.md\n          echo \"version=$version\" >> \"$GITHUB_OUTPUT\"\n      - name: Create draft release\n        env:\n          GH_TOKEN: ${{ github.token }}\n          VERSION: ${{ steps.release-details.outputs.version }}\n        run: |\n          set -euo pipefail\n          gh release create \"$VERSION\" \\\n            --draft \\\n            --title \"$VERSION\" \\\n            --notes-file draft-release-notes.md \\\n            --target \"$(git rev-parse HEAD)\""
+      },
+      {
+        "citation": "[.github/workflows/issue-manager.yml:1-34]",
+        "content": "name: Issue Manager\n\non:\n  schedule:\n    - cron: \"21 17 * * *\"\n  issue_comment:\n    types:\n      - created\n  issues:\n    types:\n      - labeled\n  pull_request_target: # zizmor: ignore[dangerous-triggers]\n    types:\n      - labeled\n  workflow_dispatch:\n\npermissions: {}\n\njobs:\n  issue-manager:\n    if: github.repository_owner == 'fastapi'\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    permissions:\n      issues: write\n      pull-requests: write\n    steps:\n      - name: Dump GitHub context\n        env:\n          GITHUB_CONTEXT: ${{ toJson(github) }}\n        run: echo \"$GITHUB_CONTEXT\"\n      - uses: tiangolo/issue-manager@dc846170c36eb62fb434b3d943b36399fe240fb5 # 0.8.1\n        with:\n          token: ${{ secrets.GITHUB_TOKEN }}"
+      },
+      {
+        "citation": "[.github/workflows/pre-commit.yml:1-60]",
+        "content": "name: pre-commit\n\non:\n  pull_request:\npermissions: {}\n\nenv:\n  CAN_PUSH: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}\n\njobs:\n  pre-commit:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n      id-token: write\n    timeout-minutes: 5\n    steps:\n      - name: Dump GitHub context\n        env:\n          GITHUB_CONTEXT: ${{ toJson(github) }}\n        run: echo \"$GITHUB_CONTEXT\"\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        name: Checkout PR for own repo\n        if: env.CAN_PUSH == 'true'\n        with:\n          # To be able to commit it needs to fetch the head of the branch, not the\n          # merge commit\n          ref: ${{ github.head_ref }}\n          # And it needs the full history to be able to compute diffs\n          fetch-depth: 0\n          persist-credentials: false\n      # pre-commit lite ci needs the default checkout configs to work\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        name: Checkout PR for fork\n        if: env.CAN_PUSH == 'false'\n        with:\n        # To be able to commit it needs the head branch of the PR, the remote one\n          ref: ${{ github.event.pull_request.head.sha }}\n          fetch-depth: 0\n          persist-credentials: false\n      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0\n        with:\n          bun-version: 1.3.12\n      - name: Set up Python\n        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0\n        with:\n          python-version-file: .python-version\n      - name: Setup uv\n        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2\n        with:\n          version: \"latest-known\"\n          cache-dependency-glob: |\n            requirements**.txt\n            pyproject.toml\n            uv.lock\n      - name: Install backend dependencies\n        run: uv sync --all-packages\n      - name: Install frontend dependencies\n        run: bun ci\n      - name: Run prek - pre-commit"
+      },
+      {
+        "citation": "[.github/workflows/detect-conflicts.yml:1-22]",
+        "content": "name: \"Conflict detector\"\non:\n  push:\n  pull_request_target: # zizmor: ignore[dangerous-triggers]\n    types: [synchronize]\n\npermissions: {}\n\njobs:\n  main:\n    permissions:\n      contents: read\n      pull-requests: write\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n    steps:\n      - name: Check if PRs have merge conflicts\n        uses: eps1lon/actions-label-merge-conflict@0273be72a0bbd58fcd71d0d6c02c209b50d1e5e1 # v3.1.0\n        with:\n          dirtyLabel: \"conflicts\"\n          repoToken: \"${{ secrets.GITHUB_TOKEN }}\"\n          commentOnDirty: \"This pull request has a merge conflict that needs to be resolved.\""
+      }
+    ],
+    "expected_sources": [],
+    "cited_sources": [
+      ".github/workflows/create-draft-release.yml",
+      ".github/workflows/detect-conflicts.yml",
+      ".github/workflows/issue-manager.yml",
+      ".github/workflows/pre-commit.yml"
+    ],
+    "expected_source_recall": null,
+    "abstained": false,
+    "manual_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "The application uses Redis for rate limiting.",
+          "present": null
+        },
+        {
+          "claim": "The application limits every user to a specific number of requests.",
+          "present": null
+        },
+        {
+          "claim": "The repository implements API rate-limiting middleware.",
+          "present": null
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": null,
+      "all_citations_support_claims": null,
+      "notes": ""
+    },
+    "judge_review": {
+      "required_facts": [],
+      "incorrect_claims": [
+        {
+          "claim": "The application uses Redis for rate limiting.",
+          "present": false
+        },
+        {
+          "claim": "The application limits every user to a specific number of requests.",
+          "present": true
+        },
+        {
+          "claim": "The repository implements API rate-limiting middleware.",
+          "present": true
+        }
+      ],
+      "other_unsupported_claims": [],
+      "all_claims_supported": true,
+      "all_citations_support_claims": true,
+      "notes": "",
+      "judge_model": "qwen2.5:1.5b"
+    }
+  }
+]

@@ -1,9 +1,0 @@
-[
-  {
-    "question": "How are user passwords handled?",
-    "expected_files": [
-      "backend/app/core/security.py",
-      "backend/app/crud.py"
-    ]
-  }
-]

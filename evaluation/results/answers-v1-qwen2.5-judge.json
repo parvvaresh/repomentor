@@ -1,0 +1,21 @@
+{
+  "labels": "judge_review",
+  "questions": 10,
+  "answerable_questions": 8,
+  "unanswerable_questions": 2,
+  "required_facts": 29,
+  "supported_required_facts": 23,
+  "gold_fact_coverage": 0.7931034482758621,
+  "complete_answers": 3,
+  "complete_answer_rate": 0.375,
+  "answerable_response_rate": 1.0,
+  "unanswerable_abstention_accuracy": 0.0,
+  "faithful_substantive_answers": 10,
+  "faithful_substantive_answer_rate": 1.0,
+  "citation_correct_substantive_answers": 10,
+  "citation_correct_substantive_answer_rate": 1.0,
+  "known_incorrect_claims_present": 5,
+  "known_incorrect_claims_checked": 22,
+  "known_error_trigger_rate": 0.22727272727272727,
+  "mean_expected_source_recall": 0.8125
+}
