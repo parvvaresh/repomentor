@@ -1,0 +1,68 @@
+# Local deployment: RepoMentor, Ollama and (optionally) PostgreSQL with pgvector.
+#
+#   cp .env.example .env        # add your GitLab/GitHub tokens
+#   docker compose up -d --build
+#   open http://localhost:8000
+#
+# The first start pulls the chat model into the Ollama volume. To use
+# pgvector instead of NumPy files, set VECTOR_STORE=pgvector in .env and run
+#   docker compose --profile pgvector up -d --build
+
+services:
+  repomentor:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      REPOMENTOR_DATA: /data
+      DATABASE_URL: ${DATABASE_URL:-postgresql://repomentor:repomentor@postgres:5432/repomentor}
+    volumes:
+      - repomentor-data:/data
+    depends_on:
+      ollama:
+        condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # Uncomment to use an NVIDIA GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
+
+  # Downloads the chat model once; later starts find it in the volume
+  ollama-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "sleep 3 && ollama pull ${OLLAMA_MODEL:-qwen3:1.7b}"]
+    depends_on:
+      - ollama
+    restart: "no"
+
+  postgres:
+    profiles: ["pgvector"]
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: repomentor
+      POSTGRES_PASSWORD: repomentor
+      POSTGRES_DB: repomentor
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  repomentor-data:
+  ollama-models:
+  postgres-data:
