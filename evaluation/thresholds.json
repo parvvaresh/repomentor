@@ -1,0 +1,31 @@
+{
+  "retrieval": {
+    "description": "Default settings, all questions, K=5. Last accepted run: fastapi-template 0.861/0.824/0.670, flask 0.958/0.958/0.812. Thresholds sit about one question below.",
+    "k": 5,
+    "split": "all",
+    "benchmarks": {
+      "fastapi-template": {
+        "hit": 0.83,
+        "recall": 0.79,
+        "mrr": 0.62
+      },
+      "flask": {
+        "hit": 0.91,
+        "recall": 0.91,
+        "mrr": 0.76
+      }
+    }
+  },
+  "answers": {
+    "description": "Answer gold set on the pinned FastAPI template, labeled by the model judge. Last accepted run (qwen2.5:1.5b): response rate 1.00, abstention 0.50, source recall 0.69, known-error rate 0.27. Fact coverage is not gated: the judge's agreement with people on facts is only fair (kappa 0.38).",
+    "benchmark": "evaluation/benchmarks/fastapi-template.json",
+    "minimums": {
+      "answerable_response_rate": 0.5,
+      "unanswerable_abstention_accuracy": 0.5,
+      "mean_expected_source_recall": 0.4
+    },
+    "maximums": {
+      "known_error_trigger_rate": 0.35
+    }
+  }
+}

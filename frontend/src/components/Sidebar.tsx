@@ -1,18 +1,27 @@
 import { useState, type FormEvent } from "react";
-import type { ChatSummary, Repo, ServerStatus } from "../types";
+import type {
+  ChatSummary,
+  CurrentUser,
+  Provider,
+  Repo,
+  ServerStatus,
+} from "../types";
 import { formatRelativeTime } from "../time";
+import { repoName } from "../types";
 import Icon from "./Icon";
 
 interface Props {
   status: ServerStatus | null;
+  user: CurrentUser | null;
+  onSignOut: (() => void) | null;
   repos: Repo[];
   selectedRepo: Repo | null;
   chats: ChatSummary[];
   activeChatId: number | null;
   busyChatId: number | null;
   onSelectRepo: (repoId: number) => void;
-  onAddRepo: (projectPath: string) => Promise<void>;
-  onReindexRepo: (repoId: number) => void;
+  onAddRepo: (projectPath: string, provider: Provider | null) => Promise<void>;
+  onReindexRepo: (repoId: number, full: boolean) => void;
   onDeleteRepo: (repoId: number) => void;
   onSelectChat: (chatId: number | null) => void;
   onRenameChat: (chatId: number, title: string) => void;
@@ -53,9 +62,10 @@ export default function Sidebar(props: Props) {
 
         {adding && (
           <AddRepoForm
+            providers={status?.providers ?? ["gitlab"]}
             gitlabConfigured={status?.gitlab_configured ?? true}
-            onAdd={async (path) => {
-              await props.onAddRepo(path);
+            onAdd={async (path, provider) => {
+              await props.onAddRepo(path, provider);
               setAdding(false);
             }}
           />
@@ -70,7 +80,8 @@ export default function Sidebar(props: Props) {
             >
               {repos.map((repo) => (
                 <option key={repo.id} value={repo.id}>
-                  {repo.project_path}
+                  {repo.provider === "github" ? "GitHub · " : ""}
+                  {repoName(repo)}
                   {repo.status === "indexing" ? " (indexing…)" : ""}
                   {repo.status === "error" ? " (error)" : ""}
                 </option>
@@ -81,7 +92,7 @@ export default function Sidebar(props: Props) {
         ) : (
           !adding && (
             <p className="muted small">
-              No repositories yet. Add a GitLab project to get started.
+              No repositories yet. Add a GitLab or GitHub project to get started.
             </p>
           )
         )}
@@ -89,7 +100,7 @@ export default function Sidebar(props: Props) {
         {selectedRepo && (
           <RepoDetails
             repo={selectedRepo}
-            onReindex={() => props.onReindexRepo(selectedRepo.id)}
+            onReindex={(full) => props.onReindexRepo(selectedRepo.id, full)}
             onDelete={() => props.onDeleteRepo(selectedRepo.id)}
           />
         )}
@@ -124,6 +135,18 @@ export default function Sidebar(props: Props) {
       </nav>
 
       <footer className="sidebar-footer">
+        {props.user && (
+          <div className="user-row">
+            <span className="user-name" title={props.user.id}>
+              {props.user.name || props.user.username}
+            </span>
+            {props.onSignOut && (
+              <button className="text-button" onClick={props.onSignOut}>
+                Sign out
+              </button>
+            )}
+          </div>
+        )}
         {status ? (
           <span
             className="model-status"
@@ -147,14 +170,25 @@ export default function Sidebar(props: Props) {
   );
 }
 
+const PROVIDER_LABELS: Record<Provider, string> = {
+  gitlab: "GitLab",
+  github: "GitHub",
+  local: "Local",
+};
+
 function AddRepoForm({
+  providers,
   gitlabConfigured,
   onAdd,
 }: {
+  providers: Provider[];
   gitlabConfigured: boolean;
-  onAdd: (projectPath: string) => Promise<void>;
+  onAdd: (projectPath: string, provider: Provider | null) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [provider, setProvider] = useState<Provider>(providers[0] ?? "gitlab");
+  // A pasted URL names its host; the server works it out from the URL
+  const isUrl = value.includes("://") || value.startsWith("git@");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -167,7 +201,7 @@ function AddRepoForm({
     setError(null);
 
     try {
-      await onAdd(value.trim());
+      await onAdd(value.trim(), isUrl ? null : provider);
     } catch (value) {
       setError(value instanceof Error ? value.message : String(value));
     } finally {
@@ -177,18 +211,36 @@ function AddRepoForm({
 
   return (
     <form className="add-repo" onSubmit={submit}>
+      {providers.length > 1 && !isUrl && (
+        <div className="segmented small" role="radiogroup" aria-label="Host">
+          {providers.map((option) => (
+            <button
+              type="button"
+              key={option}
+              role="radio"
+              aria-checked={provider === option}
+              className={provider === option ? "is-active" : ""}
+              onClick={() => setProvider(option)}
+            >
+              {PROVIDER_LABELS[option]}
+            </button>
+          ))}
+        </div>
+      )}
       <input
         autoFocus
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="group/project or GitLab URL"
-        aria-label="GitLab project path"
+        placeholder={
+          provider === "github" ? "owner/repo or GitHub URL" : "group/project or GitLab URL"
+        }
+        aria-label="Project path or URL"
         disabled={submitting}
       />
       <button className="primary-button" disabled={submitting || !value.trim()}>
         {submitting ? "Adding…" : "Index repository"}
       </button>
-      {!gitlabConfigured && (
+      {!gitlabConfigured && provider === "gitlab" && !isUrl && (
         <p className="form-hint warning">
           GITLAB_TOKEN or GITLAB_BASE_URL is missing from .env on the server.
         </p>
@@ -204,7 +256,7 @@ function RepoDetails({
   onDelete,
 }: {
   repo: Repo;
-  onReindex: () => void;
+  onReindex: (full: boolean) => void;
   onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -218,6 +270,11 @@ function RepoDetails({
         <span>
           {repo.status === "ready" &&
             `${repo.file_count ?? "?"} files · ${repo.chunk_count ?? "?"} chunks`}
+          {repo.status === "ready" && repo.head_commit && (
+            <code className="commit" title={repo.head_commit}>
+              {" "}@ {repo.head_commit.slice(0, 8)}
+            </code>
+          )}
           {repo.status === "indexing" && (repo.message ?? "Indexing…")}
           {repo.status === "error" && "Indexing failed"}
         </span>
@@ -253,11 +310,18 @@ function RepoDetails({
             <>
               <button
                 className="icon-button"
-                onClick={onReindex}
-                title="Download and index the latest version"
-                aria-label="Re-index repository"
+                onClick={() => onReindex(false)}
+                title="Sync: download and embed only the files that changed"
+                aria-label="Sync repository"
               >
                 <Icon name="refresh" />
+              </button>
+              <button
+                className="text-button"
+                onClick={() => onReindex(true)}
+                title="Rebuild the index from scratch"
+              >
+                Rebuild
               </button>
               <button
                 className="icon-button"

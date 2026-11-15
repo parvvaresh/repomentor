@@ -1,0 +1,12 @@
+.git
+.venv
+.env
+data
+evaluation/runs
+**/__pycache__
+**/*.pyc
+frontend/node_modules
+frontend/dist
+*.egg-info
+docs
+RepoMentor_Project_Overview.pdf

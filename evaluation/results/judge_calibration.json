@@ -1,0 +1,23 @@
+{
+  "judge_model": "qwen2.5:1.5b",
+  "labels": {
+    "required_fact": {
+      "items": 29,
+      "agreement": 0.6551724137931034,
+      "cohen_kappa": 0.3776824034334763,
+      "human_yes": 8,
+      "judge_yes": 18,
+      "false_positive": 10,
+      "false_negative": 0
+    },
+    "incorrect_claim": {
+      "items": 22,
+      "agreement": 0.9090909090909091,
+      "cohen_kappa": 0.6206896551724138,
+      "human_yes": 2,
+      "judge_yes": 4,
+      "false_positive": 2,
+      "false_negative": 0
+    }
+  }
+}

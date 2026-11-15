@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { ApiError, api, setCredentials } from "./api";
 import ChatView from "./components/ChatView";
 import Sidebar from "./components/Sidebar";
+import SignIn from "./components/SignIn";
 import type {
   ChatSummary,
+  Credentials,
+  CurrentUser,
+  Fact,
   Message,
+  Provider,
   QuestionOptions,
   Repo,
   ServerStatus,
+  Source,
 } from "./types";
 
 const REPO_KEY = "repomentor.repo";
 const CHAT_KEY = "repomentor.chat";
 const OPTIONS_KEY = "repomentor.options";
+const CREDENTIALS_KEY = "repomentor.credentials";
 
 const DEFAULT_OPTIONS: QuestionOptions = {
   top_k: 5,
@@ -31,7 +38,8 @@ function readStorage<T>(key: string, fallback: T): T {
 
 function writeStorage(key: string, value: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // Storage can be unavailable (private mode); remembering is optional
   }
@@ -42,10 +50,107 @@ export interface PendingQuestion {
   question: string;
   options: QuestionOptions;
   startedAt: number;
+  /** What the agent says it is doing, streamed from the server. */
+  status: string | null;
+  /** Markdown streamed so far (coder, reviewer, tour). */
+  text: string;
+  /** Facts streamed so far (mentor). */
+  facts: { fact: Fact; source: Source }[];
+  sources: Source[];
 }
 
+/** Loads the server status and handles signing in when the server needs it. */
 export default function App() {
   const [status, setStatus] = useState<ServerStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [credentials, setStoredCredentials] = useState<Credentials | null>(() =>
+    readStorage<Credentials | null>(CREDENTIALS_KEY, null),
+  );
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const [signInError, setSignInError] = useState<string | null>(null);
+
+  // The API module sends these with every request
+  setCredentials(credentials);
+
+  useEffect(() => {
+    api
+      .status()
+      .then(setStatus)
+      .catch((error) => setStatusError(error.message));
+  }, []);
+
+  const authRequired = status?.auth_mode === "token";
+
+  useEffect(() => {
+    if (!authRequired || !credentials) {
+      setUser(null);
+      return;
+    }
+    api.me().then(setUser).catch(() => undefined);
+  }, [authRequired, credentials]);
+
+  const signIn = async (value: Credentials) => {
+    setCredentials(value);
+
+    try {
+      setUser(await api.me());
+      writeStorage(CREDENTIALS_KEY, value);
+      setStoredCredentials(value);
+      setSignInError(null);
+    } catch (error) {
+      setCredentials(null);
+      throw error;
+    }
+  };
+
+  const signOut = useCallback((reason: string | null = null) => {
+    writeStorage(CREDENTIALS_KEY, null);
+    writeStorage(REPO_KEY, null);
+    writeStorage(CHAT_KEY, null);
+    setStoredCredentials(null);
+    setUser(null);
+    setSignInError(reason);
+  }, []);
+
+  if (authRequired && !credentials) {
+    return (
+      <SignIn
+        providers={(status?.providers ?? ["gitlab"]).filter(
+          (p): p is "gitlab" | "github" => p !== "local",
+        )}
+        initialError={signInError}
+        onSignIn={signIn}
+      />
+    );
+  }
+
+  return (
+    <Workspace
+      key={credentials?.token ?? "local"}
+      status={status}
+      statusError={statusError}
+      user={authRequired ? user : null}
+      onSignOut={authRequired ? () => signOut() : null}
+      onUnauthorized={() =>
+        signOut("Your sign-in is no longer valid. Sign in again.")
+      }
+    />
+  );
+}
+
+function Workspace({
+  status,
+  statusError,
+  user,
+  onSignOut,
+  onUnauthorized,
+}: {
+  status: ServerStatus | null;
+  statusError: string | null;
+  user: CurrentUser | null;
+  onSignOut: (() => void) | null;
+  onUnauthorized: () => void;
+}) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [reposLoaded, setReposLoaded] = useState(false);
   const [selectedRepoId, setSelectedRepoId] = useState<number | null>(() =>
@@ -58,13 +163,15 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingChat, setLoadingChat] = useState(false);
   const [pending, setPending] = useState<PendingQuestion | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(statusError);
   // Options saved by older versions lack newer fields such as `agent`
   const [options, setOptions] = useState<QuestionOptions>(() => ({
     ...DEFAULT_OPTIONS,
     ...readStorage<Partial<QuestionOptions>>(OPTIONS_KEY, {}),
   }));
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => setError(statusError), [statusError]);
 
   // The chat the user is looking at, readable from async callbacks
   const activeChatRef = useRef(activeChatId);
@@ -76,9 +183,16 @@ export default function App() {
 
   const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
 
-  const showError = useCallback((value: unknown) => {
-    setError(value instanceof Error ? value.message : String(value));
-  }, []);
+  const showError = useCallback(
+    (value: unknown) => {
+      if (value instanceof ApiError && value.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      setError(value instanceof Error ? value.message : String(value));
+    },
+    [onUnauthorized],
+  );
 
   const refreshRepos = useCallback(async () => {
     try {
@@ -106,9 +220,8 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    api.status().then(setStatus).catch(showError);
     refreshRepos();
-  }, [refreshRepos, showError]);
+  }, [refreshRepos]);
 
   // Pick a repository once the list is known
   useEffect(() => {
@@ -218,8 +331,8 @@ export default function App() {
     setSidebarOpen(false);
   };
 
-  const addRepo = async (projectPath: string) => {
-    const repo = await api.addRepo(projectPath);
+  const addRepo = async (projectPath: string, provider: Provider | null) => {
+    const repo = await api.addRepo(projectPath, provider);
     setRepos((list) =>
       [...list, repo].sort((a, b) =>
         a.project_path.localeCompare(b.project_path),
@@ -229,9 +342,9 @@ export default function App() {
     setActiveChatId(null);
   };
 
-  const reindexRepo = async (repoId: number) => {
+  const reindexRepo = async (repoId: number, full: boolean) => {
     try {
-      const repo = await api.reindexRepo(repoId);
+      const repo = await api.reindexRepo(repoId, full);
       setRepos((list) => list.map((r) => (r.id === repo.id ? repo : r)));
     } catch (value) {
       showError(value);
@@ -287,7 +400,14 @@ export default function App() {
       question,
       options: askOptions,
       startedAt: Date.now(),
+      status: null,
+      text: "",
+      facts: [],
+      sources: [],
     });
+
+    const update = (change: (current: PendingQuestion) => PendingQuestion) =>
+      setPending((current) => (current ? change(current) : current));
 
     try {
       // A chat is only created when its first question is sent
@@ -306,7 +426,7 @@ export default function App() {
         };
         chatId = chat.id;
         setChats((list) => [chat, ...list]);
-        setPending((current) => current && { ...current, chatId: chat.id });
+        update((current) => ({ ...current, chatId: chat.id }));
 
         if (activeChatRef.current === null) {
           // Switch to it without reloading: the messages arrive below
@@ -316,10 +436,34 @@ export default function App() {
         }
       }
 
-      const response = await api.ask(chatId, question, askOptions);
+      const saved: Message[] = [];
+
+      await api.askStream(chatId, question, askOptions, (event) => {
+        switch (event.type) {
+          case "user":
+          case "message":
+            saved.push(event.message);
+            break;
+          case "status":
+            update((current) => ({ ...current, status: event.label }));
+            break;
+          case "sources":
+            update((current) => ({ ...current, sources: event.sources }));
+            break;
+          case "delta":
+            update((current) => ({ ...current, text: current.text + event.text }));
+            break;
+          case "fact":
+            update((current) => ({
+              ...current,
+              facts: [...current.facts, { fact: event.fact, source: event.source }],
+            }));
+            break;
+        }
+      });
 
       if (activeChatRef.current === chatId) {
-        setMessages((list) => [...list, ...response.messages]);
+        setMessages((list) => [...list, ...saved]);
       }
 
       refreshChats(repoId);
@@ -330,6 +474,9 @@ export default function App() {
     }
   };
 
+  const replaceMessage = (message: Message) =>
+    setMessages((list) => list.map((m) => (m.id === message.id ? message : m)));
+
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? null;
   const pendingHere =
     pending !== null && pending.chatId === activeChatId ? pending : null;
@@ -338,6 +485,8 @@ export default function App() {
     <div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
       <Sidebar
         status={status}
+        user={user}
+        onSignOut={onSignOut}
         repos={repos}
         selectedRepo={selectedRepo}
         chats={chats}
@@ -369,6 +518,8 @@ export default function App() {
         options={options}
         onOptionsChange={setOptions}
         onAsk={ask}
+        onMessageChange={replaceMessage}
+        onError={showError}
         onNewChat={() => selectChat(null)}
         onOpenSidebar={() => setSidebarOpen(true)}
         error={error}

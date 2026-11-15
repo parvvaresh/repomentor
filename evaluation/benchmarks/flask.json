@@ -1,0 +1,227 @@
+{
+  "name": "flask",
+  "description": "Pallets Flask (BSD-3-Clause). Large, heavily documented modules.",
+  "repository": {
+    "url": "https://github.com/pallets/flask.git",
+    "commit": "49943b5a94413a530761350f04e896f76e8d620e"
+  },
+  "questions": [
+    {
+      "id": "sessions",
+      "question": "How are signed cookie sessions loaded and saved?",
+      "expected_files": [
+        "src/flask/sessions.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "prefixed_env",
+      "question": "How can configuration be loaded from environment variables with a prefix?",
+      "expected_files": [
+        "src/flask/config.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "app_context",
+      "question": "How is the application context pushed and popped?",
+      "expected_files": [
+        "src/flask/ctx.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "blueprint_registration",
+      "question": "How are blueprints registered on an application?",
+      "expected_files": [
+        "src/flask/sansio/blueprints.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "cli_find_app",
+      "question": "How does the flask command find the application to run?",
+      "expected_files": [
+        "src/flask/cli.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "json_responses",
+      "question": "How are JSON responses serialized?",
+      "expected_files": [
+        "src/flask/json/provider.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "session_tags",
+      "question": "How does the session serializer handle types that JSON does not support, such as tuples or UUIDs?",
+      "expected_files": [
+        "src/flask/json/tag.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "send_file",
+      "question": "How are files sent to the client safely from a directory?",
+      "expected_files": [
+        "src/flask/helpers.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "method_views",
+      "question": "How do class-based views dispatch requests to methods such as get and post?",
+      "expected_files": [
+        "src/flask/views.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "templates",
+      "question": "How are templates rendered and which variables are available in them?",
+      "expected_files": [
+        "src/flask/templating.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "test_client",
+      "question": "How does the test client send requests and keep cookies?",
+      "expected_files": [
+        "src/flask/testing.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "tutorial_auth",
+      "question": "How does the tutorial app register users and check their passwords?",
+      "expected_files": [
+        "examples/tutorial/flaskr/auth.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "tutorial_db",
+      "question": "How is the SQLite connection opened and closed in the tutorial app?",
+      "expected_files": [
+        "examples/tutorial/flaskr/db.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "error_handling",
+      "question": "How are unhandled exceptions turned into error responses?",
+      "expected_files": [
+        "src/flask/app.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "signals",
+      "question": "Which signals are sent during a request?",
+      "expected_files": [
+        "src/flask/signals.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "max_content_length",
+      "question": "How is the maximum request body size enforced?",
+      "expected_files": [
+        "src/flask/wrappers.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "logging",
+      "question": "How is the application logger configured?",
+      "expected_files": [
+        "src/flask/logging.py"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "celery",
+      "question": "How do Celery tasks run inside the Flask application context in the example?",
+      "expected_files": [
+        "examples/celery/src/task_app/__init__.py"
+      ],
+      "split": "test",
+      "type": "natural"
+    },
+    {
+      "id": "ci",
+      "question": "How are the tests run in continuous integration?",
+      "expected_files": [
+        ".github/workflows/tests.yaml"
+      ],
+      "split": "dev",
+      "type": "natural"
+    },
+    {
+      "id": "make_response",
+      "question": "How does `make_response` handle a tuple returned from a view?",
+      "expected_files": [
+        "src/flask/app.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    },
+    {
+      "id": "before_request",
+      "question": "Where is the `before_request` decorator defined?",
+      "expected_files": [
+        "src/flask/sansio/scaffold.py"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "flashed_messages",
+      "question": "How does `get_flashed_messages` filter messages by category?",
+      "expected_files": [
+        "src/flask/helpers.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    },
+    {
+      "id": "signing_serializer",
+      "question": "What does `get_signing_serializer` do when there is no `SECRET_KEY`?",
+      "expected_files": [
+        "src/flask/sessions.py"
+      ],
+      "split": "dev",
+      "type": "identifier"
+    },
+    {
+      "id": "url_for",
+      "question": "How does `url_for` build external URLs?",
+      "expected_files": [
+        "src/flask/app.py",
+        "src/flask/helpers.py"
+      ],
+      "split": "test",
+      "type": "identifier"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { PendingQuestion } from "../App";
+import { repoName } from "../types";
 import type {
   AgentInfo,
   Message,
@@ -7,8 +8,9 @@ import type {
   Repo,
   ServerStatus,
 } from "../types";
-import AssistantMessage from "./AssistantMessage";
+import AssistantMessage, { SourceList } from "./AssistantMessage";
 import Icon from "./Icon";
+import Markdown from "./Markdown";
 
 interface Props {
   repo: Repo | null;
@@ -22,6 +24,8 @@ interface Props {
   options: QuestionOptions;
   onOptionsChange: (options: QuestionOptions) => void;
   onAsk: (question: string) => void;
+  onMessageChange: (message: Message) => void;
+  onError: (error: unknown) => void;
   onNewChat: () => void;
   onOpenSidebar: () => void;
   error: string | null;
@@ -63,7 +67,7 @@ export default function ChatView(props: Props) {
           <span className="chat-header-title" dir="auto">
             {props.chatTitle ?? "New chat"}
           </span>
-          {repo && <span className="chat-header-repo">{repo.project_path}</span>}
+          {repo && <span className="chat-header-repo" title={repo.project_path}>{repoName(repo)}</span>}
         </div>
         {messages.length > 0 && (
           <button className="ghost-button" onClick={props.onNewChat}>
@@ -100,7 +104,13 @@ export default function ChatView(props: Props) {
                   status={status}
                 />
               ) : (
-                <AssistantMessage key={message.id} message={message} />
+                <AssistantMessage
+                  key={message.id}
+                  message={message}
+                  allowMergeRequests={status?.allow_merge_requests ?? false}
+                  onChange={props.onMessageChange}
+                  onError={props.onError}
+                />
               ),
             )}
 
@@ -155,10 +165,11 @@ function composerPlaceholder(
   if (repo.status === "indexing") return "Waiting for the repository to finish indexing…";
   if (repo.status === "error") return "Re-index this repository to ask questions";
   if (busyElsewhere) return "Waiting for the answer in another chat…";
+  if (agent?.placeholder) return agent.placeholder;
   if (agent && agent.id !== "mentor") {
-    return `Ask ${agent.name} to work on ${repo.project_path}…`;
+    return `Ask ${agent.name} to work on ${repoName(repo)}…`;
   }
-  return `Ask about ${repo.project_path}…`;
+  return `Ask about ${repoName(repo)}…`;
 }
 
 function EmptyState({
@@ -193,8 +204,8 @@ function EmptyState({
     <div className="empty-state">
       <h1>
         {agent && agent.id !== "mentor"
-          ? `${agent.name} · ${repo.project_path}`
-          : `Ask about ${repo.project_path}`}
+          ? `${agent.name} · ${repoName(repo)}`
+          : `Ask about ${repoName(repo)}`}
       </h1>
       <p className="muted">
         {agent?.description ??
@@ -277,19 +288,40 @@ function PendingAnswer({
     return () => window.clearInterval(timer);
   }, [pending.startedAt]);
 
-  const step = pending.options.retrieval_only
-    ? "Retrieving sources…"
-    : elapsed < 2
+  const step =
+    pending.status ??
+    (pending.options.retrieval_only || elapsed < 2
       ? "Retrieving sources…"
-      : (agent?.working_label ?? "Working…");
+      : (agent?.working_label ?? "Working…"));
 
   return (
     <div className="message assistant-message">
+      {pending.facts.length > 0 && (
+        <ul className="facts">
+          {pending.facts.map(({ fact, source }, position) => (
+            <li key={position}>
+              <span dir="auto">{fact.text}</span>{" "}
+              <span className="citation-file muted">
+                {source.file_path}:{fact.start_line ?? source.start_line}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pending.text && (
+        <Markdown text={pending.text} sources={pending.sources} onHighlight={() => {}} />
+      )}
+
       <div className="pending">
         <span className="spinner" />
         <span>{step}</span>
         {elapsed >= 3 && <span className="muted">{elapsed}s</span>}
       </div>
+
+      {pending.sources.length > 0 && !pending.text && pending.facts.length === 0 && (
+        <SourceList sources={pending.sources} highlighted={null} label="Reading" />
+      )}
     </div>
   );
 }
