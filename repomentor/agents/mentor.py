@@ -1,7 +1,6 @@
 """The original RepoMentor behavior: cited, fact-by-fact answers."""
 
-import rag_answer
-
+from .. import answer
 from .base import Agent, AgentContext
 
 
@@ -16,12 +15,12 @@ class MentorAgent(Agent):
         "How does user authentication work?",
         "How are user passwords handled?",
         "Where are the database models defined?",
-        "How is the application deployed?",
+        "Why was the login flow changed recently?",
     ]
     working_label = "Reading sources and extracting facts…"
 
-    def run(self, question: str, context: AgentContext) -> dict:
-        return rag_answer.generate_answer(
+    def stream(self, question: str, context: AgentContext):
+        yield from answer.stream_answer(
             question,
             context.index,
             context.top_k,
@@ -30,18 +29,4 @@ class MentorAgent(Agent):
         )
 
     def format_text(self, result: dict) -> str:
-        sources = result["sources"]
-
-        if result["retrieval_only"]:
-            return "\n".join(source["citation"] for source in sources)
-
-        if not result["facts"]:
-            return (
-                "I couldn't find enough evidence in the "
-                "retrieved repository sources."
-            )
-
-        return "\n".join(
-            f"- {fact['text']} {sources[fact['source']]['citation']}"
-            for fact in result["facts"]
-        )
+        return answer.format_answer(result)

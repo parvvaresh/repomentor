@@ -10,7 +10,10 @@ The web interface lists every registered agent automatically.
 
 from .base import Agent, AgentContext
 from .coder import CoderAgent
+from .experts import ExpertsAgent
 from .mentor import MentorAgent
+from .reviewer import ReviewerAgent
+from .tour import TourAgent
 
 
 DEFAULT_AGENT = MentorAgent.id
@@ -35,6 +38,9 @@ def list_agents() -> list[Agent]:
 
 register(MentorAgent())
 register(CoderAgent())
+register(ReviewerAgent())
+register(ExpertsAgent())
+register(TourAgent())
 
 
 __all__ = [
